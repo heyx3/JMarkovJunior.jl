@@ -31,10 +31,10 @@ end
 Bplus.@make_toggleable_asserts markovjunior_
 
 "
-A global debug flag that disables accelerated lookups,
-falling back to simpler behavior that's much less likely to have bugs
+A compile-time flag that disables accelerated lookups,
+  falling back to simpler behavior that's much less likely to have bugs
 "
-const SKIP_CACHE = false # Useful for debugging the cache
+const SKIP_CACHE = false
 
 
 include("cells.jl")
@@ -57,7 +57,7 @@ const DEFAULT_SEQUENCE = Sequence_Ordered(
                 CellRule("E", "w")
             ], false)
         ]
-    elseif true # Random walk maze generator
+    elseif false # Random walk maze generator
         [
             Sequence_DoN([
                 CellRule("b", "R")
@@ -97,15 +97,17 @@ const DEFAULT_SEQUENCE = Sequence_Ordered(
                 ],
                 true,
                 AllInference(
-                    # [
-                    #     InferPath('w', 'N', 'b', recompute_each_time=false)
-                    # ],
-                    # 3.0f0
+                    [
+                        InferPath('w', 'N', 'b', recompute_each_time=false)
+                    ],
+                    0.0f0
                 )
             ),
             Sequence_DoAll(
                 [
-                    CellRule("G", "w")
+                    CellRule("G", "w"),
+                    CellRule("N", "b"),
+                    CellRule("B", "w")
                 ],
                 false
             )
