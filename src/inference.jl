@@ -40,6 +40,13 @@ struct InferPath
     )
 end
 
+dsl_string(p::InferPath) = string(
+    "@path ", p.temperature, " ",
+    p.recompute_each_time ? "recompute " : "",
+    p.invert ? "invert " : "",
+    dsl_string(p.source_types), " => ", dsl_string(p.path_types), " => ", dsl_string(p.dest_types)
+)
+
 "The current state of an `InferPath` constraint applied to a specific grid"
 struct InferPath_State{N}
     constraint::InferPath
@@ -182,6 +189,12 @@ struct AllInference
     end
 end
 
+dsl_string(i::AllInference) = string(
+    "@infer begin\n",
+    "\t", i.temperature, "\n",
+    "\t", iter_join(dsl_string.(i.paths), "\n\t")...
+)
+
 "Checks whether any inference should be happening"
 function inference_exists(constraints::AllInference)::Bool
     return !isempty(constraints.paths)
@@ -243,10 +256,3 @@ function recalculate!(inference::AllInference_State)
     end
     return nothing
 end
-
-
-##########################
-#  High-level Logic
-
-# "Assuming `inference_exists()`, selects the next rule application to use"
-# functio

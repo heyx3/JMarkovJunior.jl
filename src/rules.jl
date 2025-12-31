@@ -27,7 +27,7 @@ struct CellRule
                     elseif c == CELL_CHAR_INVALID
                         nothing
                     else
-                        @warn "Unsupported rule char '$c', expected one of $(list(keys(CELL_CODE_BY_CHAR)))! Falling back to magenta ('M')"
+                        @warn "Unsupported rule char '$c', expected one of $(collect(keys(CELL_CODE_BY_CHAR)))! Falling back to magenta ('M')"
                         CELL_CODE_BY_CHAR['M']
                     end
                 elseif i isa Integer
@@ -43,6 +43,9 @@ struct CellRule
                    converter(input), converter(output))
     end
 end
+
+dsl_string(rule_string::Vector{Optional{UInt8}}) = String(map(r -> isnothing(r) ? CELL_CHAR_INVALID : dsl_string(r), rule_string))
+dsl_string(r::CellRule) = "@rule $(dsl_string(r.input)) => $(dsl_string(r.output))"
 
 function rule_applies(grid::CellGrid{N},
                       rule::CellRule,

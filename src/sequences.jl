@@ -166,6 +166,12 @@ function execute_sequence(d::Sequence_DoN, grid::CellGrid{N}, rng::PRNG,
 
     return (next_i + 1, cache, inference, applications_buffer)
 end
+dsl_string(dn::Sequence_DoN) = string("@do_n ", dn.count, "begin
+    ",
+    dn.sequential                  ?                 "@sequential\n    " : "",
+    inference_exists(dn.inference) ? "$(dsl_string(dn.inference))\n    " : "",
+    (iter_join(dsl_string.(dn.rules), "\n    "))..., "
+end")
 
 
 "Executes a set of rules `round(N*C)` times, where C is the number of cells in the grid"
@@ -248,6 +254,12 @@ function execute_sequence(d::Sequence_DoAll, grid::CellGrid{N}, rng::PRNG,
         return (inner_sequence, new_inner_state)
     end
 end
+dsl_string(dn::Sequence_DoN) = string("@do_all begin
+    ",
+    dn.sequential                  ?                 "@sequential\n    " : "",
+    inference_exists(dn.inference) ? "$(dsl_string(dn.inference))\n    " : "",
+    (iter_join(dsl_string.(dn.rules), "\n    "))..., "
+end")
 
 "Executes a list of sequences, in order"
 struct Sequence_Ordered <: AbstractSequence
@@ -356,12 +368,21 @@ function broadcast_sequence(seq::Sequence_DrawBox{N}, new_dims::Int) where {N}
         return seq
     elseif N == 1
         return Sequence_DrawBox(
-            convert(BoxF{new_dims}, seq.area),
+            BoxF{new_dims}(
+                min=VecF{new_dims}(i->min_inclusive(seq.area).x),
+                size=VecF{new_dims}(i->size(seq.area).x)
+            ),
             seq.output_type
         )
     else
         error("Can't broadcast a ", N, "D box to ", new_dims, "D")
     end
 end
+dsl_string(b::Sequence_DrawBox{N}) where {N} = string(
+    "@draw_box('", dsl_string(b.output_type), "', ",
+    "min=", min_inclusive(b.area).data, ", ",
+    "size=", size(b.area).data,
+    ")"
+)
 
 #TODO: Slice a grid to individual M-dimensional areas, and execute a sequence on each such area

@@ -11,6 +11,16 @@ struct ParsedMarkovAlgorithm
     dimension::Union{Nothing, Int, Tuple{Vararg{Int}}}
 end
 
+dsl_string(pma::ParsedMarkovAlgorithm) = string(
+    "@markovjunior '", dsl_string(pma.initial_fill), "' ",
+    exists(pma.dimension) ? "$(pma.dimension) " : "",
+    "begin
+    ",
+    iter_join(dsl_string.(pma.main_sequence.list), "\n    ")...,
+    "
+end"
+)
+
 "Gets the initial cell state from a parsed Markov algorithm"
 markov_initial_fill(pma::ParsedMarkovAlgorithm) = pma.initial_fill
 
@@ -62,7 +72,7 @@ Generates a markov algorithm using our DSL.
 ```
 @markovjunior  #=initial fill, defaults 'b': =# 'b'   #= optional fixed resolution or ndims: =# (100, 100)   begin
     # White pixel in center, Blue line along top, Brown line along bottom:
-    @draw_box 'b' min=0.5 size=0
+    @draw_box 'w' min=0.5 size=0
     @draw_box(
         min=(0, 1),
         max=1,
@@ -75,7 +85,7 @@ Generates a markov algorithm using our DSL.
     )
 
     @do_all begin
-        @rule "wbb" "wGw"
+        @rule "wbb" => "wGw"
         @sequential
         @infer begin
             @path "w" => 'b' => "N" recompute
@@ -84,13 +94,14 @@ Generates a markov algorithm using our DSL.
     end
 
     @do_all begin
-        @rule "G" "w"
-        @rule "N" "b"
-        @rule "B" "w"
+        @rule "G" => "w"
+        @rule "N" => "b"
+        @rule "B" => "w"
     end
 
-    # @do_n begin
-    #     50; @sequential
+    # @do_n 50 begin
+    #     ... [some rules]
+    #     @sequential
     # end
 end
 ````
@@ -215,7 +226,7 @@ export ParsedMarkovAlgorithm, @markovjunior, parse_markovjunior,
 
 "Raises an error using the given LineNumberNode to point to user source"
 function raise_error_at(src::LineNumberNode, msg...)
-    error_expr = :( error($(msg...)) )
+    error_expr = :( error($(string(msg...))) )
     eval(Expr(:block, src, error_expr))
 end
 
@@ -250,20 +261,24 @@ function peel_markovjunior_block_assignment(inout_block_args, name::Symbol)::Opt
     return nothing
 end
 function parse_markovjunior_rule(location::LineNumberNode, rule_args)::CellRule
-    if length(rule_args) != 2
-        raise_error_at(location, "@rule should have two arguments; found ", length(rule_args))
-    elseif any(a -> !isa(a, Union{String, Char}), rule_args)
-        raise_error_at(location, "@rule should have two strings/chars; got ", typeof.(rule_args))
+    if (length(rule_args) != 1) || !isexpr(rule_args[1], :call) || (rule_args[1].args[1] != :(=>))
+        raise_error_at(location, "@rule should be formatted like '@rule x => y'!")
+    elseif any(a -> !isa(a, Union{String, Char}), rule_args[1].args[2:end])
+        raise_error_at(location, "@rule should have two strings/chars; got ", typeof.(rule_args[1].args[2:end]))
     else
-        return CellRule(rule_args...)
+        return CellRule(rule_args[1].args[2:end]...)
     end
 end
 function parse_markovjunior_inference(inputs::BlockParseInputs,
                                       location::LineNumberNode,
-                                      block_args)::AllInference
+                                      args)::AllInference
+    if (length(args) != 1) || !Base.isexpr(args[1], :block)
+        raise_error_at(location, "Expected `@infer` to have a single block, but got: ", args)
+    end
+    block_args = args[1].args
+
     paths = Vector{InferPath}()
     temperature = Ref{Optional{Float32}}(nothing)
-
     parse_markovjunior_block(block_args) do location, line
         if (line isa Expr) && line.head == :macrocall
             if line.args[1] == Symbol("@path")
@@ -296,15 +311,15 @@ function parse_markovjunior_inference(inputs::BlockParseInputs,
                         else
                             path_temperature = convert(Float32, path_temperature)
                         end
-                    elseif isexpr(path_arg, :call) && (path_arg.args[1] == :(=>)) &&
-                           isexpr(path_arg.args[3], :call) && (path_arg.args[3].args[1] == :(=>))
+                    elseif Base.isexpr(path_arg, :call) && (path_arg.args[1] == :(=>)) &&
+                           Base.isexpr(path_arg.args[3], :call) && (path_arg.args[3].args[1] == :(=>))
                     #begin
                         if exists(path_src)
                             raise_error_at(location, "path data ('a => b => c') was given more than once")
                         end
                         path_src = path_arg.args[2]
-                        path_through = path.arg.args[3].args[2]
-                        path_dest = path.arg.args[3].args[3]
+                        path_through = path_arg.args[3].args[2]
+                        path_dest = path_arg.args[3].args[3]
                     else
                         raise_error_at(location, "Unexpected @path argument: '", path_arg, "'")
                     end
@@ -336,7 +351,7 @@ function parse_markovjunior_inference(inputs::BlockParseInputs,
         end
     end
 
-    return AllInference(paths, exists(temperature) ? temperature : 0.0f0)
+    return AllInference(paths, exists(temperature[]) ? temperature[] : 0.0f0)
 end
 
 function parse_markovjunior_block_entry(inputs::BlockParseInputs,
@@ -355,7 +370,7 @@ function parse_markovjunior_block_entry(inputs::BlockParseInputs,
     value::Optional{UInt8} = nothing
     for (i, a) in enumerate(block_args)
         if a isa Char
-            if a in CELL_CODE_BY_CHAR
+            if haskey(CELL_CODE_BY_CHAR, a)
                 value = CELL_CODE_BY_CHAR[a]
             else
                 raise_error_at(location, "Unsupported color: '", a, "'")
@@ -387,18 +402,18 @@ function parse_markovjunior_block_entry(inputs::BlockParseInputs,
     end
 
     # Compute their actual values/dimensions.
-    function get_measure(expr, name)::Tuple{Optional{Tuple{Vararg{Int}}},
-                                            Optional{Int}}
+    function get_measure(expr, name)::Tuple{Optional{Tuple{Vararg{Real}}},
+                                            Optional{Real}}
         if isnothing(expr)
             return (nothing, nothing)
         end
-        value = eval(expr)
-        if value isa Int
-            return ((value, ), 1)
-        elseif value isa Tuple{Vararg{Int}}
-            return (value, length(value))
+        measure = eval(expr)
+        if measure isa Real
+            return ((measure, ), 1)
+        elseif measure isa Tuple{Vararg{Real}}
+            return (measure, length(measure))
         else
-            raise_error_at(location, "Unexpected value for '", name, "': ", typeof(value))
+            raise_error_at(location, "Unexpected value for '", name, "': ", typeof(measure))
         end
     end
     (value_min, dims_min) = get_measure(set_min, :min)
@@ -412,13 +427,13 @@ function parse_markovjunior_block_entry(inputs::BlockParseInputs,
         exists(dims_size) ? dims_size : -1
     )
     push!(inputs.reported_dimensions, final_dims)
-    function broadcast_measure(src_value, name)::Optional{Tuple{Vararg{Int}}}
+    function broadcast_measure(src_value, name)::Optional{Tuple{Vararg{Float32}}}
         if isnothing(src_value)
             return nothing
         elseif length(src_value) == 1
-            return ntuple(i->src_value[1], final_dims)
+            return ntuple(i->convert(Float32, src_value[1]), final_dims)
         elseif length(src_value) == final_dims
-            return src_value
+            return convert.(Ref(Float32), src_value)
         else
             raise_error_at("Can't broadcast '", name, "' from ",
                            length(src_value), "D to ", final_dims, "D")
@@ -430,11 +445,11 @@ function parse_markovjunior_block_entry(inputs::BlockParseInputs,
 
     # Generate the sequence object.
     box = if exists(final_value_min) && exists(final_value_max)
-        BoxF(min=Vec(final_value_min...), max=Vec(final_value_max...))
+        Box(min=Vec(final_value_min...), max=Vec(final_value_max...))
     elseif exists(final_value_min) && exists(final_value_size)
-        BoxF(min=Vec(final_value_min...), size=Vec(final_value_size...))
+        Box(min=Vec(final_value_min...), size=Vec(final_value_size...))
     elseif exists(final_value_max) && exists(final_value_size)
-        BoxF(max=Vec(final_value_max...), size=Vec(final_value_size...))
+        Box(max=Vec(final_value_max...), size=Vec(final_value_size...))
     else
         error("Unhandled: ", exists(final_value_min), "/",
                              exists(final_value_max), "/", exists(final_value_size))
@@ -485,4 +500,54 @@ function parse_markovjunior_block_entry(inputs::BlockParseInputs,
         exists(inference[]) ? inference[] : AllInference()
     )
 end
-#TODO: Other sequences
+function parse_markovjunior_block_entry(inputs::BlockParseInputs,
+                                        ::Val{Symbol("@do_n")},
+                                        location::LineNumberNode,
+                                        block_args)
+    if (length(block_args) != 2) || !isa(block_args[2], Expr) || (block_args[2].head != :block)
+        raise_error_at(location, "Unsupported syntax: expected `@do_n N begin ... end`")
+    end
+
+    count = eval(block_args[1])
+    if !isa(count, Integer)
+        raise_error_at(location, "`@do_n N ...`: N should be integer, but is ", typeof(count))
+    end
+
+    # Parse each statement within the block.
+    rules = Vector{CellRule}()
+    sequential = Ref{Optional{Bool}}(nothing)
+    inference = Ref{Optional{AllInference}}(nothing)
+    parse_markovjunior_block(block_args[2].args) do location, line
+        if line isa Expr && line.head == :macrocall
+            inner_location = line.args[2]
+            macro_args = line.args[3:end]
+            if line.args[1] == Symbol("@rule")
+                push!(rules, parse_markovjunior_rule(inner_location, macro_args))
+            elseif line.args[1] == Symbol("@sequential")
+                if isnothing(sequential[])
+                    sequential[] = true
+                else
+                    raise_error_at(inner_location, "`@sequential` appeared more than once")
+                end
+            elseif line.args[1] == Symbol("@infer")
+                if isnothing(inference[])
+                    inference[] = parse_markovjunior_inference(inputs, inner_location, macro_args)
+                else
+                    raise_error_at(inner_location, "`@infer` appeared more than once")
+                end
+            else
+                raise_error_at(inner_location, "Unsupported statment inside @do_n: ", line.args[1])
+            end
+        else
+            raise_error_at(location, "Unexpected `@do_n` expression: '", line, "'")
+        end
+    end
+
+    return Sequence_DoN(
+        rules,
+        convert(Int, count),
+        exists(sequential[]) ? sequential[] : false,
+        exists(inference[]) ? inference[] : AllInference()
+    )
+end
+#TODO: :@do_n_relative, @sequence

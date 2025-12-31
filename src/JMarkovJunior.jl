@@ -2,7 +2,8 @@
 module JMarkovJunior
 
 using Random, Setfield, Profile
-using OrderedCollections, GLFW
+using OrderedCollections, GLFW, CImGui
+using CSyntax # Simplifies CImGui calls
 using Bplus; @using_bplus
 
 "
@@ -30,7 +31,7 @@ end
 
 Bplus.@make_toggleable_asserts markovjunior_
 #DEBUG: Enable debug mode.
-markovjunior_asserts_enabled() = true
+# markovjunior_asserts_enabled() = true
 
 "
 A compile-time flag that disables accelerated lookups,
@@ -39,138 +40,113 @@ A compile-time flag that disables accelerated lookups,
 const SKIP_CACHE = false
 
 
+"Converts various pieces of MarkovJunior algorithm definitions into their DSL representation"
+function dsl_string end
+
+# Basics:
 include("cells.jl")
 include("rules.jl")
 include("inference.jl")
 include("sequences.jl")
-
 include("dsl.jl")
 
+# High-level:
 include("renderer.jl")
+include("gui.jl")
 
 
-const DEFAULT_SEQUENCE = Sequence_Ordered(
+"A good sequence for testing and display"
+const DEFAULT_SEQUENCE =
     if false # Short-paths maze generator:
-        [
-            Sequence_DoN([
-                CellRule("b", "w")
-            ], 1, false),
-            Sequence_DoAll([
-                CellRule("bbw", "wEw")
-            ], false),
-            Sequence_DoAll([
-                CellRule("E", "w")
-            ], false)
-        ]
-    elseif false # Random walk maze generator
-        [
-            Sequence_DoN([
-                CellRule("b", "R")
-            ], 1, false),
-            Sequence_DoAll([
-                CellRule("Rbb", "GGR"),
-                CellRule("GGR", "Rww"),
-                CellRule("R", "w")
-            ], true)
-        ]
-    elseif true # Custom
-        [
-            Sequence_DrawBox(
-                Box2Df(
-                    min=v2f(0.5, 0.5),
-                    max=v2f(0.5, 0.5)
-                ),
-                'w'
-            ),
-            Sequence_DrawBox(
-                Box2Df(
-                    min=v2f(0, 1),
-                    max=v2f(1, 1)
-                ),
-                'B'
-            ),
-            Sequence_DrawBox(
-                Box2Df(
-                    min=v2f(0, 0),
-                    max=v2f(1, 0)
-                ),
-                'N'
-            ),
-            Sequence_DoAll(
-                [
-                    CellRule("wbb", "wGw")
-                ],
-                true,
-                AllInference(
-                    [
-                        InferPath('w', 'N', 'b', recompute_each_time=false)
-                    ],
-                    0.0f0
-                )
-            ),
-            Sequence_DoAll(
-                [
-                    CellRule("G", "w"),
-                    CellRule("N", "b"),
-                    CellRule("B", "w")
-                ],
-                false
-            )
-        ]
-    else
-        [ ]
-    end
-)
-
-function main(; resolution::v2i = v2i(100, 100),
-                sequence::AbstractSequence = DEFAULT_SEQUENCE,
-                seed = @markovjunior_debug(0x1a2a3b4b5c6c7d8d, rand(UInt32)),
-                profile::Bool = false
-             )::Int
-    println("Seed: ", seed)
-    rng = PRNG(seed)
-
-    grid = fill(CELL_CODE_BY_CHAR['b'], resolution.data)
-
-    @game_loop begin
-        # Bplus.GL.Context constructor parameters:
-        INIT(v2i(800, 800), "Markov Junior Playground",
-             vsync=VsyncModes.off)
-
-        # Initialization:
-        SETUP = begin
-            profile && Profile.start_timer()
-
-            grid_tex_ref = Ref{Texture}()
-            grid_pixels_buffer = Ref{Matrix{v3f}}()
-
-            sequence_state = execute_sequence(
-                sequence, grid, rng,
-                start_sequence(sequence, grid, AllInference(), rng)
-            )
-            LOOP.max_fps = nothing
+        @markovjunior 'b' begin
+            # Pick a source cell
+            @do_n 1 begin
+                @rule "b" => "w"
+            end
+            # Draw maze paths out from the cell
+            @do_all begin
+                @rule "bbw" => "wEw"
+            end
+            # Clean up
+            @do_all begin
+                @rule "E" => "w"
+            end
         end
 
-        # Core loop:
+    elseif false # Random walk maze generator:
+        @markovjunior 'b' begin
+            # Pick a source pixel
+            @do_n 1 begin
+                @rule "b" => "R"
+            end
+            # Do a backtracking random walk to carve out maze paths
+            @do_all begin
+                @sequential
+                @rule "Rbb" => "GGR"
+                @rule "GGR" => "Rww"
+                @rule "R" => "w"
+            end
+        end
+    elseif true # Custom weirdness
+        @markovjunior 'b' begin
+            # White pixel in center, Blue line along top, Brown line along bottom
+            @draw_box 'w' min=0.5 size=0
+            @draw_box(
+                min=(0, 1),
+                max=1,
+                'B'
+            )
+            @draw_box(
+                size=(1, 0),
+                max=(1, 0),
+                'N'
+            )
+
+            # Draw maze paths from the white pixel towards the brown line
+            @do_all begin
+                @rule "wbb" => "wGw"
+                @sequential
+                @infer begin
+                    @path "w" => 'b' => "N"
+                    3.5
+                end
+            end
+
+            # Clean up helper colors
+            @do_all begin
+                @rule "G" => "w"
+                @rule "N" => "b"
+                @rule "B" => "w"
+            end
+        end
+    else # Blank screen
+        @markovjunior 'b' begin end
+    end
+
+function main(; sequence::ParsedMarkovAlgorithm = DEFAULT_SEQUENCE,
+                resolution::v2i = v2i(get_something(
+                    markov_fixed_resolution(sequence),
+                    (100, 100)
+                )...),
+                seed = @markovjunior_debug(0x1a2a3b4b5c6c7d8d, rand(UInt32))
+             )::Int
+    @game_loop begin
+        INIT(v2i(800, 800), "Markov Junior Playground",
+             vsync=VsyncModes.on)
+
+        SETUP = begin
+            LOOP.max_fps = nothing
+            gui = GuiRunner(dsl_string(sequence), seed)
+        end
         LOOP = begin
             if GLFW.WindowShouldClose(LOOP.context.window)
-                break # Cleanly ends the game loop
+                break
             end
 
-            # Tick the algorithm.
-            if exists(sequence_state)
-                sequence_state = execute_sequence(sequence, grid, rng, sequence_state)
-            end
-            render_markov_2d(grid, v3f(0.4, 0, 0.4), grid_pixels_buffer, grid_tex_ref)
-
-            # Render the algorithm state.
-            clear_screen(vRGBAf(1, 0, 1, 1))
-            clear_screen(@f32(1)) # Depth
-            simple_blit(grid_tex_ref[], output_curve=@f32(2.2))
+            gui_main(gui, LOOP.delta_seconds)
         end
-
         TEARDOWN = begin
-            profile && Profile.stop_timer()
+            close(gui)
         end
     end
 
@@ -179,14 +155,19 @@ end
 
 # Precompile code using a basic sequence.
 # The sequence logic is super type-unstable, so this is very important to performance.
-function run_game(; sequence::AbstractSequence = DEFAULT_SEQUENCE,
-                    resolution::Int = 50)
-    grid = fill(CELL_CODE_BY_CHAR['b'], (resolution, resolution))
+function run_game(; sequence::ParsedMarkovAlgorithm = DEFAULT_SEQUENCE,
+                    resolution::NTuple{2, Int} = get_something(
+                        markov_fixed_resolution(sequence),
+                        (50, 50)
+                    ))
+    @bp_check markov_fixed_dimension(sequence) in (nothing, 2)
+
+    grid = fill(sequence.initial_fill, resolution)
     rng = PRNG(0x23423411)
 
-    seq_state = start_sequence(sequence, grid, AllInference(), rng)
+    seq_state = start_sequence(sequence.main_sequence, grid, AllInference(), rng)
     while exists(seq_state)
-        seq_state = execute_sequence(sequence, grid, rng, seq_state)
+        seq_state = execute_sequence(sequence.main_sequence, grid, rng, seq_state)
     end
 
     return grid
