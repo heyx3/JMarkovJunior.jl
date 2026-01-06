@@ -12,8 +12,13 @@ struct CellRule
     input::Vector{Optional{UInt8}}
     output::Vector{Optional{UInt8}}
 
-    function CellRule(input::Union{AbstractVector, AbstractString},
-                      output::Union{AbstractVector, AbstractString})
+    function CellRule(input::Union{AbstractVector, AbstractString, Symbol},
+                      output::Union{AbstractVector, AbstractString, Symbol})
+        if input isa Symbol || output isa Symbol
+            return CellRule(input isa Symbol ? string(input) : input,
+                            output isa Symbol ? string(output) : output)
+        end
+
         if length(input) != length(output)
             error("Input and output rules must be the same size!")
         end

@@ -2,13 +2,17 @@
     NONE,
     potentials, rules
 )
-const GUI_LEGEND_DATA = map(enumerate(CELL_TYPES)) do i,t
+const GUI_LEGEND_DATA = map(enumerate(CELL_TYPES)) do (i,t)
     return (
         t.color,
         Float32(i)/Float32(length(CELL_TYPES)),
         " - $(t.char)"
     )
 end
+
+const gVec2 = Bplus.GUI.gVec2
+const gVec4 = Bplus.GUI.gVec4
+
 
 "The state of the GUI for our MarkovJunior tool"
 mutable struct GuiRunner
@@ -40,8 +44,8 @@ mutable struct GuiRunner
     ticks_per_second::Float32
     time_till_next_tick::Float32
 
-    ticks_per_jump::Int
-    ticks_for_profile::Int
+    ticks_per_jump::Int32
+    ticks_for_profile::Int32
     max_seconds_for_run_to_end::Float32
 end
 
@@ -58,7 +62,7 @@ function GuiRunner(initial_algorithm_str::String,
         Texture(SpecialFormats.rgb10_a2, v2u(1, 2)), # Size must not match fake_size
                                                      #   or else it won't be properly reallocated
 
-        @markovjunior begin end, nothing, PRNG(1),
+        @markovjunior(begin end), nothing, PRNG(1),
         Ref{Texture}(), Ref{Matrix{v3f}}(),
         zero(UInt64), "[NULL]",
         GuiText(string(seed)),
@@ -81,22 +85,22 @@ function GuiRunner(initial_algorithm_str::String,
 end
 function Base.close(runner::GuiRunner)
     close(runner.state_texture)
-    close(runner.algorithm_render2D)
+    close(runner.algorithm_render2D[])
 end
 
 function update_gui_runner_texture_2D(runner::GuiRunner)
-    if (state_texture.type != TextureTypes.twoD) || (state_texture.size.xy != vsize(runner.state_grid).xy)
+    if (runner.state_texture.type != TexTypes.twoD) || (runner.state_texture.size.xy != vsize(runner.state_grid).xy)
         runner.state_texture = Texture(
             SimpleFormat(
                 FormatTypes.uint,
                 SimpleFormatComponents.R,
-                SimpleFormatBitDepths.B4
+                SimpleFormatBitDepths.B8 # 4-bit isn't valid because there's only one component
             ),
             runner.state_grid,
-            sampler = TexSampler{1}(
+            sampler = TexSampler{ndims(runner.state_grid)}(
                 pixel_filter = PixelFilters.rough
             ),
-            n_mips = 0
+            n_mips = 1
         )
         runner.state_grid_tex2D_slice = fill(zero(UInt8), runner.state_texture.size.xy...)
     else
@@ -160,10 +164,10 @@ function reset_gui_runner_algo(runner::GuiRunner,
         if exists(r)
             r
         else
-            (runner.next_resolution...)
+            Tuple(runner.next_resolution)
         end
     end
-    runner.state_grid = fill(algorithm.initial_fill, resolution)
+    runner.state_grid = fill(runner.algorithm.initial_fill, resolution)
 
     # Initialize the RNG.
     if parse_new_seed
@@ -212,12 +216,18 @@ end
 gui_runner_is_finished(runner::GuiRunner)::Bool = isnothing(runner.algorithm_state)
 
 function gui_main(runner::GuiRunner, delta_seconds::Float32)
-    gui_next_window_space(Box2Df(
-        min=v2f(0, 0),
-        max=v2f(0.3, 1)
-    ))
-    gui_within_child_window("Runner", CImGui.LibCImGui.ImGuiWindowFlags_NoDecoration) do
+    @markovjunior_debug(print_wnd_sizes::Bool = rand(Float32) < 0.01)
+
+    gui_next_window_space(
+        Box2Df(
+            min=v2f(0, 0),
+            max=v2f(0.5, 1)
+        ),
+        min_pixel_size = v2i(323, -1)
+    )
+    gui_window("Runner", C_NULL, CImGui.LibCImGui.ImGuiWindowFlags_NoDecoration) do
         content_size = convert(v2f, CImGui.GetContentRegionAvail())
+        print_wnd_sizes && println("Rnn: ", CImGui.GetWindowSize())
 
         # Render settings:
         @c CImGui.Selectable("Monochrome", &runner.draw_monochrome)
@@ -241,12 +251,17 @@ function gui_main(runner::GuiRunner, delta_seconds::Float32)
 
         # Current state:
         CImGui.BeginChild(CImGui.GetID("StateDisplayArea"),
-                          ImVec2(content_size.x - 20,
-                                 content_size.y - 200))
+                          gVec2(content_size.x - 20,
+                                content_size.y - 200))
+            img_size = convert(v2f, runner.algorithm_render2D[].size.xy)
+            min_img_size::Float32 = content_size.x - 4
+            scale::Float32 = max(1.0f0, (min_img_size / img_size)...)
+            @set! img_size *= scale
+
             CImGui.Image(gui_tex_handle(runner.algorithm_render2D[]),
-                         convert(gVec2, runner.algorithm_render2D[].size.xy),
-                         ImVec2(0, 0), ImVec2(1, 1),
-                         ImVec4(1, 1, 1, 1), ImVec4(0, 0, 0, 0))
+                         convert(gVec2, img_size),
+                         gVec2(0, 0), gVec2(1, 1),
+                         gVec4(1, 1, 1, 1), gVec4(0, 0, 0, 0))
         CImGui.EndChild()
         #TODO: Add B+ helper for scroll regions once this is verified working
 
@@ -259,9 +274,11 @@ function gui_main(runner::GuiRunner, delta_seconds::Float32)
             step_gui_runner_algo(runner)
             should_update_texture[] = true
         end
-        CImGui.SameLine(0, 20)
+        CImGui.SameLine(0, 40)
         #   * Jump
-        runner.ticks_per_jump = CImGui.DragInt("##TicksPerJump", runner.ticks_per_jump, 1.0, 1, 0, "%d")
+        gui_with_item_width(20) do
+            @c CImGui.DragInt("##TicksPerJump", &runner.ticks_per_jump, 1.0, 1, 0, "%d")
+        end
         CImGui.SameLine()
         if CImGui.Button("Jump")
             for i in 1:runner.ticks_per_jump
@@ -269,7 +286,7 @@ function gui_main(runner::GuiRunner, delta_seconds::Float32)
                 should_update_texture[] = true
             end
         end
-        CImGui.SameLine(0, 20)
+        CImGui.SameLine(0, 40)
         #    * Play/Pause
         if runner.is_playing
             runner.time_till_next_tick -= delta_seconds
@@ -279,24 +296,35 @@ function gui_main(runner::GuiRunner, delta_seconds::Float32)
                 runner.time_till_next_tick += 1.0f0 / runner.ticks_per_second
             end
         end
-        runner.ticks_per_second = CImGui.DragFloat("##TicksPerSecond", runner.ticks_per_second, 1.0, 0.00001, 0, "%f", 1.0)
+        gui_with_item_width(30) do
+            @c CImGui.DragFloat("##TicksPerSecond", &runner.ticks_per_second, 0.1, 0.00001, 0, "%.1f", 1.0)
+        end
         CImGui.SameLine()
-        new_is_playing::Bool = CImGui.Selectable(runner.is_playing ? "Pause" : "Play",
-                                                 runner.is_playing)
+        new_is_playing::Bool = false
+        gui_with_item_width(60) do
+            @c CImGui.Selectable(runner.is_playing ? "Pause" : "Play",
+                                 &new_is_playing)
+        end
         if new_is_playing && !runner.is_playing
             runner.time_till_next_tick = 1.0f0 / runner.ticks_per_second
         end
         runner.is_playing = new_is_playing
 
+        CImGui.Dummy(0, 20)
+
         # Special control buttons:
-        gui_with_style(CImGui.LibCImGui.ImGuiCol_Button, v3f(1, 0.6, 0.7)) do
-            runner.max_seconds_for_run_to_end = CImGui.DragFloat(
-                "##MaxSecondsRunningToEnd",
-                runner.max_seconds_for_run_to_end,
-                1.0, 0.0, 0.0, "%f", 1.0
-            )
+        gui_with_style(CImGui.LibCImGui.ImGuiCol_Button, v3f(0.5, 0.3, 0.35)) do
+            gui_with_item_width(30) do
+                @c CImGui.DragFloat(
+                    "##MaxSecondsRunningToEnd",
+                    &runner.max_seconds_for_run_to_end,
+                    0.1,
+                    0.0, 0.0,
+                    "%.1f", 1.0
+                )
+            end
             CImGui.SameLine()
-            CImGui.Tooltip("Max seconds, before canceling the run-to-end")
+            gui_tooltip("Max seconds, before canceling the run-to-end")
             if CImGui.Button("Run to End")
                 start_t = time()
                 while !gui_runner_is_finished(runner)
@@ -319,7 +347,9 @@ function gui_main(runner::GuiRunner, delta_seconds::Float32)
                 should_update_texture[] = true
             end
             CImGui.SameLine(0, 20)
-            runner.ticks_for_profile = CImGui.DragInt("##TicksForProfile", runner.ticks_for_profile, 1.0, 1, 0, "%d")
+            gui_with_item_width(20) do
+                @c CImGui.DragInt("##TicksForProfile", &runner.ticks_for_profile, 1.0, 1, 0, "%d")
+            end
             CImGui.SameLine()
             if CImGui.Button("Profile")
                 Profile.start_timer()
@@ -337,17 +367,21 @@ function gui_main(runner::GuiRunner, delta_seconds::Float32)
             CImGui.Text("#TODO: profiled modal view")
         end
 
+        CImGui.Dummy(0, 20)
+
         # Seed data:
         CImGui.Text(runner.current_seed_display)
-        CImGui.SameLine(0, 40)
-        gui_text!(runner.next_seed)
+        CImGui.Dummy(20, 0); CImGui.SameLine()
+        gui_with_item_width(100) do
+            gui_text!(runner.next_seed)
+        end
         CImGui.SameLine(0, 10)
         if CImGui.Button("Restart##WithNewSeed")
             reset_gui_runner_algo(runner, true, false)
             should_update_texture[] = true
         end
         CImGui.SameLine(0, 20)
-        CImGui.Text(isnothing(tryparse(UInt64, runner.next_seed)) ?
+        CImGui.Text(isnothing(tryparse(UInt64, string(runner.next_seed))) ?
                       "as String" :
                       "as number")
 
@@ -357,20 +391,25 @@ function gui_main(runner::GuiRunner, delta_seconds::Float32)
         end
     end
 
-    gui_next_window_space(Box2Df(
-        min=v2f(0.3, 0),
-        max=v2f(0.4, 0.5)
-    ))
-    gui_within_child_window("Legend", CImGui.LibCImGui.ImGuiWindowFlags_NoDecoration) do
+    gui_next_window_space(
+        Box2Df(
+            min=v2f(0.5, 0),
+            max=v2f(0.65, 0.5)
+        ),
+        max_pixel_size = v2i(-1, 316)
+    )
+    gui_window("Legend", C_NULL, CImGui.LibCImGui.ImGuiWindowFlags_NoDecoration) do
+        print_wnd_sizes && println("Legend wnd: ", CImGui.GetWindowSize())
         gui_within_group() do
             for (color, greyscale, text) in GUI_LEGEND_DATA
                 gui_draw_rect(
                     GuiDrawCursorRelative(Box2Df(
                         min=v2f(0, 0),
-                        size=v2f(40, 40)
-                    ), v2f(1, 0)),
+                        size=v2f(15, 15)
+                    ), true),
                     GuiDrawFilled(color)
                 )
+                CImGui.SameLine()
                 CImGui.Text(text)
             end
         end
@@ -379,11 +418,12 @@ function gui_main(runner::GuiRunner, delta_seconds::Float32)
     end
 
     gui_next_window_space(Box2Df(
-        min=v2f(0.4, 0),
-        max=v2f(0.7, 1)
+        min=v2f(0.65, 0),
+        max=v2f(1.0, isempty(runner.algorithm_error_msg) ? 1.0 : 0.8)
     ))
-    gui_within_child_window("Editor", CImGui.LibCImGui.ImGuiWindowFlags_NoDecoration) do
+    gui_window("Editor", C_NULL, CImGui.LibCImGui.ImGuiWindowFlags_NoDecoration) do
         content_size = convert(v2f, CImGui.GetContentRegionAvail())
+        print_wnd_sizes && println("Editor wnd: ", CImGui.GetWindowSize())
 
         runner.next_algorithm.multiline_requested_size = round.(Ref(Int),
             (content_size - v2f(20, 50)).data
@@ -394,6 +434,23 @@ function gui_main(runner::GuiRunner, delta_seconds::Float32)
             reset_gui_runner_algo(runner, false, true)
         end
     end
+
+    if !isempty(runner.algorithm_error_msg)
+        gui_next_window_space(Box2Df(
+            min=v2f(0.65, 0.8),
+            max=v2f(1.0, 1.0)
+        ))
+        gui_with_style(CImGui.LibCImGui.ImGuiCol_WindowBg, v3f(0.6, 0.2, 0.26)) do
+            gui_window("ErrorMsg", C_NULL, CImGui.LibCImGui.ImGuiWindowFlags_NoDecoration) do
+                print_wnd_sizes && println("Error Msg wnd:", CImGui.GetWindowSize())
+                gui_with_text_wrap(Inf) do
+                    CImGui.Text(runner.algorithm_error_msg)
+                end
+            end
+        end
+    end
+
+    print_wnd_sizes && println()
 
     #TODO: File management window
 end

@@ -261,9 +261,9 @@ function peel_markovjunior_block_assignment(inout_block_args, name::Symbol)::Opt
     return nothing
 end
 function parse_markovjunior_rule(location::LineNumberNode, rule_args)::CellRule
-    if (length(rule_args) != 1) || !isexpr(rule_args[1], :call) || (rule_args[1].args[1] != :(=>))
+    if (length(rule_args) != 1) || !Base.isexpr(rule_args[1], :call) || (rule_args[1].args[1] != :(=>))
         raise_error_at(location, "@rule should be formatted like '@rule x => y'!")
-    elseif any(a -> !isa(a, Union{String, Char}), rule_args[1].args[2:end])
+    elseif any(a -> !isa(a, Union{String, Char, Symbol}), rule_args[1].args[2:end])
         raise_error_at(location, "@rule should have two strings/chars; got ", typeof.(rule_args[1].args[2:end]))
     else
         return CellRule(rule_args[1].args[2:end]...)
@@ -309,7 +309,7 @@ function parse_markovjunior_inference(inputs::BlockParseInputs,
                         if exists(path_temperature)
                             raise_error_at(location, "Temperature value was given more than once")
                         else
-                            path_temperature = convert(Float32, path_temperature)
+                            path_temperature = convert(Float32, path_arg)
                         end
                     elseif Base.isexpr(path_arg, :call) && (path_arg.args[1] == :(=>)) &&
                            Base.isexpr(path_arg.args[3], :call) && (path_arg.args[3].args[1] == :(=>))

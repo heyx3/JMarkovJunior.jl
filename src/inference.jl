@@ -41,10 +41,12 @@ struct InferPath
 end
 
 dsl_string(p::InferPath) = string(
-    "@path ", p.temperature, " ",
+    "@path ", @sprintf("%f", p.temperature), " ",
     p.recompute_each_time ? "recompute " : "",
     p.invert ? "invert " : "",
-    dsl_string(p.source_types), " => ", dsl_string(p.path_types), " => ", dsl_string(p.dest_types)
+    '"', dsl_string(p.source_types), "\" => \"",
+         dsl_string(p.path_types), "\" => \"",
+         dsl_string(p.dest_types), "\" "
 )
 
 "The current state of an `InferPath` constraint applied to a specific grid"
@@ -191,8 +193,9 @@ end
 
 dsl_string(i::AllInference) = string(
     "@infer begin\n",
-    "\t", i.temperature, "\n",
-    "\t", iter_join(dsl_string.(i.paths), "\n\t")...
+    "\t", @sprintf("%f", i.temperature), "\n",
+    "\t", iter_join(dsl_string.(i.paths), "\n\t")...,
+    "\nend"
 )
 
 "Checks whether any inference should be happening"

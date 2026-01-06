@@ -1,7 +1,7 @@
 "Based on [https://github.com/mxgmn/MarkovJunior](mxgmn/MarkovJunior)"
 module JMarkovJunior
 
-using Random, Setfield, Profile
+using Random, Setfield, Profile, Printf
 using OrderedCollections, GLFW, CImGui
 using CSyntax # Simplifies CImGui calls
 using Bplus; @using_bplus
@@ -124,10 +124,6 @@ const DEFAULT_SEQUENCE =
     end
 
 function main(; sequence::ParsedMarkovAlgorithm = DEFAULT_SEQUENCE,
-                resolution::v2i = v2i(get_something(
-                    markov_fixed_resolution(sequence),
-                    (100, 100)
-                )...),
                 seed = @markovjunior_debug(0x1a2a3b4b5c6c7d8d, rand(UInt32))
              )::Int
     @game_loop begin
@@ -144,6 +140,9 @@ function main(; sequence::ParsedMarkovAlgorithm = DEFAULT_SEQUENCE,
             end
 
             gui_main(gui, LOOP.delta_seconds)
+
+            clear_screen(v4f(0.2, 0.2, 0.2, 0))
+            clear_screen(1.0f0)
         end
         TEARDOWN = begin
             close(gui)

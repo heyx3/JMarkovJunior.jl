@@ -254,11 +254,11 @@ function execute_sequence(d::Sequence_DoAll, grid::CellGrid{N}, rng::PRNG,
         return (inner_sequence, new_inner_state)
     end
 end
-dsl_string(dn::Sequence_DoN) = string("@do_all begin
+dsl_string(da::Sequence_DoAll) = string("@do_all begin
     ",
-    dn.sequential                  ?                 "@sequential\n    " : "",
-    inference_exists(dn.inference) ? "$(dsl_string(dn.inference))\n    " : "",
-    (iter_join(dsl_string.(dn.rules), "\n    "))..., "
+    da.sequential                  ?                 "@sequential\n    " : "",
+    inference_exists(da.inference) ? "$(dsl_string(da.inference))\n    " : "",
+    (iter_join(dsl_string.(da.rules), "\n    "))..., "
 end")
 
 "Executes a list of sequences, in order"
@@ -311,7 +311,7 @@ struct Sequence_DrawBox{N} <: AbstractSequence
         elseif output isa Char
             CELL_CODE_BY_CHAR[output]
         elseif output isa Integer
-            CELL_TYPES[output]
+            CELL_TYPES[output].code
         else
             error("Unsupported cell type: ", typeof(output))
         end

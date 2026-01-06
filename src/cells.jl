@@ -53,6 +53,9 @@ end
 Base.in(type::UInt8, set::CellTypeSet) = (set.bitfield & cell_type_to_bitmask(type)) != 0
 Base.hasfastin(::Type{CellTypeSet}) = true
 
+Base.IteratorSize(::Type{CellTypeSet}) = Base.HasLength()
+Base.length(s::CellTypeSet) = count(i->true, s)
+
 Base.empty(::CellTypeSet) = CellTypeSet()
 Base.empty(::Type{CellTypeSet}, ::Type{UInt8}=UInt8) = CellTypeSet()
 
@@ -100,7 +103,7 @@ function Base.union(s::CellTypeSet, elements...)
 end
 
 function Base.iterate(s::CellTypeSet)
-    for i in UInt8(1):UInt8(N_CELL_TYPES)
+    for i in UInt8(0):UInt8(N_CELL_TYPES)
         if i in s
             return (i, i)
         end
@@ -118,7 +121,7 @@ end
 
 dsl_string(s::CellTypeSet) = let v = Char[ ]
     for u8 in s
-        push!(v, CELL_TYPES[u8].char)
+        push!(v, CELL_TYPES[u8+1].char)
     end
     String(v)
 end
@@ -151,9 +154,10 @@ function CellTypeSet(chars::String)
     end
     return s
 end
+CellTypeSet(s::Symbol) = CellTypeSet(string(s))
 
 dsl_string(cell_code::Char) = cell_code
-dsl_string(cell_code::UInt8) = (cell_code == CELL_CODE_INVALID) ? CELL_CHAR_INVALID : CELL_TYPES[cell_code]
+dsl_string(cell_code::UInt8) = (cell_code == CELL_CODE_INVALID) ? CELL_CHAR_INVALID : CELL_TYPES[cell_code+1].char
 
 
 #####################################
