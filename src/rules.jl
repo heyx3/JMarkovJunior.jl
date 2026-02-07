@@ -285,7 +285,7 @@ end
 
 
 "Calculates the total number of possible rule applications"
-n_cached_rule_applications(c::RuleCache) = Int32(sum(Iterators.map(length, c.legal_applications)))
+n_cached_rule_applications(c::RuleCache) = Int32(sum(Iterators.map(length, c.legal_applications), init=0))
 
 
 "An entry in the rule cache, representing a particular rule applied to particular cells"
