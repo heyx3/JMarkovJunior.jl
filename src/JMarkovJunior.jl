@@ -79,6 +79,8 @@ include("gui.jl")
 
 
 const ASSET_BYTES_EDITOR_FONT::Vector{UInt8} = read(assets_path("FiraCode-VariableFont_wght.ttf"))
+include_dependency(assets_path("FiraCode-VariableFont_wght.ttf"))
+
 const MEMORY_FILE_NAME = "UserSession.json"
 
 
