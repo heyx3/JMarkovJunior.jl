@@ -22,7 +22,7 @@ Keep in mind for convenience, Julia macros (code statements with the `@` symbol)
 If using the former, there are a few expressions you must keep in parentheses
   which will be mentioned as they come up.
 
-> ***Important note**: Julia uses 1-based indices! This page is written with 1-based indices too.*
+> ***Important note**: Julia uses 1-based indices! Our syntax uses 1-based indices too.*
 
 ## Parameters
 
