@@ -154,7 +154,7 @@ mutable struct MarkovTickSettings{MinCompileTimePriority}
     # An empty stack represents 'false'.
     animated::Vector{Bool}
 
-    MarkovTickSettings(min_tick_priority::Integer = STANDARD_MIN_COMPILE_TIME_TICK_PRIORITY
+    MarkovTickSettings(min_tick_priority::Integer = STANDARD_MIN_COMPILE_TIME_TICK_PRIORITY + 1
                        ;
                        skip_most_tagged_events = false
                       ) = new{min(convert(Int, min_tick_priority), STANDARD_MIN_COMPILE_TIME_TICK_PRIORITY)}(
@@ -312,7 +312,7 @@ function markov_algo_run(algo::MarkovAlgorithm,
                 @logic_logln "User canceled algorithm!"
                 # If canceled cleanly (without closing the channel),
                 #   issue a 'Canceled' tagged event through the channel.
-                (e isa ErrorCancelAlgo) && markov_algo_tick(algo_state, TAG_ALGO_CANCELED)
+                (e isa ErrorCancelAlgo) && isopen(ch) && markov_algo_tick(algo_state, TAG_ALGO_CANCELED)
             else
                 rethrow()
             end
@@ -328,6 +328,9 @@ Runs one 'step' of the algorithm, and returns what that step was:
 * The priority of the tick that just completed
 * The tagged event that just happened
 * The newly-allocated grid, on a `TAG_NEW_GRID` event
+
+If the output is `TAG_ALGO_COMPLETED` or `TAG_ALGO_CANCELED`,
+  you should call `markov_algo_cleanup()` to close out the algorithm run.
 "
 function markov_algo_next(channel::AlgoCommsChannel)::Union{Int, Symbol, CellGrid}
     put!(channel, zero(Int))
@@ -341,6 +344,13 @@ function markov_algo_next(channel::AlgoCommsChannel)::Union{Int, Symbol, CellGri
     else
         error("Unhandled: ", typeof(msg), "(", msg, ")")
     end
+end
+function markov_algo_cleanup(channel::AlgoCommsChannel)
+    if isopen(channel)
+        put!(channel, 0)
+        close(channel)
+    end
+    return nothing
 end
 
 "

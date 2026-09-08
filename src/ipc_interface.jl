@@ -93,9 +93,9 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
             msg_idx = read(channel, UInt32)
             # Message 1: Parse a new Algorithm
             if msg_idx == 1
-                @ipc_debug_log client_name "|M: Parsing new Algorithm..."
+                @ipc_debug_log "$client_name|M: Parsing new Algorithm..."
                 str_len = read(channel, UInt32)
-                @ipc_debug_log client_name "|    algo is " str_len " bytes"
+                @ipc_debug_log "$client_name|    algo is " str_len " bytes"
                 str_bytes = read(channel, str_len)
 
                 # Remove the null-terminator if necessary.
@@ -113,13 +113,13 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
 
                 # Send/log the results.
                 if result isa MarkovAlgorithm
-                    @ipc_debug_log client_name "|        Parsing successful"
+                    @ipc_debug_log "$client_name|        Parsing successful"
                     write(channel, one(UInt8))
 
                     handle = ipc_add_algorithm(result)
                     write(channel, handle)
                 else
-                    @ipc_debug_log client_name "|        " result
+                    @ipc_debug_log "$client_name|        " result
                     write(channel, zero(UInt8))
 
                     # Write the error message with a null-terminator.
@@ -130,25 +130,25 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                 end
             # Message 2: Close a parsed Algorithm (not affecting current runs)
             elseif msg_idx == 2
-                @ipc_debug_log client_name "|M: Closing a parsed Algorithm..."
+                @ipc_debug_log "$client_name|M: Closing a parsed Algorithm..."
                 algo_id = read(channel, IPC_Handle)
-                @ipc_debug_log client_name "|    Algo " algo_id
+                @ipc_debug_log "$client_name|    Algo " algo_id
 
                 result = ipc_remove_algorithm(algo_id)
-                @ipc_debug_log client_name "|    result: " exists(result)
+                @ipc_debug_log "$client_name|    result: " exists(result)
                 write(channel, convert(UInt8, exists(result)))
             # Message 3: Start an algorithm run
             elseif msg_idx == 3
-                @ipc_debug_log client_name "|M: Start running an Algorithm..."
+                @ipc_debug_log "$client_name|M: Start running an Algorithm..."
 
                 algo_id = read(channel, IPC_Handle)
-                @ipc_debug_log client_name "|    Algo " algo_id
+                @ipc_debug_log "$client_name|    Algo " algo_id
 
                 n_dims = read(channel, UInt32)
                 a_size = Vector{UInt32}(undef, n_dims)
-                @ipc_debug_log client_name "|    Dims " n_dims
+                @ipc_debug_log "$client_name|    Dims " n_dims
                 read!(channel, a_size)
-                @ipc_debug_log client_name "|    Size " Int.(Tuple(a_size))
+                @ipc_debug_log "$client_name|    Size " Int.(Tuple(a_size))
                 a_size = reinterpret(Cint, a_size)
 
                 if prod(convert.(Ref(Int), a_size)) > max_grid_byte_size
@@ -160,7 +160,7 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                     # Read initial grid state (if applicable).
                     has_initial_grid = !iszero(read(channel, UInt8))
                     initial_grid::Optional{Array{UInt8, convert(Int, n_dims)}} = if has_initial_grid
-                        @ipc_debug_log client_name "|    Provided an initial grid; reading now"
+                        @ipc_debug_log "$client_name|    Provided an initial grid; reading now"
                         #TODO: Re-use an allocation for this
                         a = Array{UInt8, convert(Int, n_dims)}(undef, a_size...)
                         read!(channel, a)
@@ -171,16 +171,24 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
 
                     # Read RNG seeds.
                     n_seed_bytes = read(channel, UInt32)
-                    @ipc_debug_log client_name "|    Seed bytes " n_seed_bytes
+                    @ipc_debug_log "$client_name|    Seed bytes " n_seed_bytes
                     seed_bytes::Vector{UInt8} = if n_seed_bytes == 0
                         [ rand(UInt8), rand(UInt8), rand(UInt8), rand(UInt8) ]
                     else
                         read(channel, n_seed_bytes)
                     end
-                    @ipc_debug_log client_name "|    Seed: " Tuple(seed_bytes)
+                    @ipc_debug_log "$client_name|    Seed: " Tuple(seed_bytes)
 
-                    println(stderr, "#TODO: Read tick settings")
-                    ticking = MarkovTickSettings()
+                    # Set up tick settings.
+                    min_tick_priority = read(channel, UInt32)
+                    is_animated_u8 = read(channel, UInt8)
+                    ticking = MarkovTickSettings(min_tick_priority)
+                    if is_animated_u8 == 1
+                        push!(ticking.animated, true)
+                    elseif is_animated_u8 != 0
+                        println(stderr, client_name, "|    ERROR: is_animated flag was not 0 or 1, but ",
+                                        convert(Int, is_animated_u8), ". Treating it as 0...")
+                    end
 
                     # Execute the start operation.
                     algo = ipc_get_algorithm(algo_id)
@@ -195,14 +203,14 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                                 ticking,
                                 seeds=seed_bytes
                             )
-                            @ipc_debug_log client_name "|    Just started running!"
+                            @ipc_debug_log "$client_name|    Just started running!"
 
                             # Move the algorithm forward until we've got a reference to the initial grid.
                             grid::Optional{CellGrid} = nothing
                             while isnothing(grid)
                                 put!(run_channel, zero(Int))
                                 next_tick = take!(run_channel)
-                                @ipc_debug_log client_name "|    While looking for initial grid, got " next_tick
+                                @ipc_debug_log "$client_name|    While looking for initial grid, got " next_tick
                                 if next_tick == TAG_NEW_GRID
                                     grid = take!(run_channel)
                                 end
@@ -210,7 +218,7 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
 
                             handle = ipc_add_state(algo, grid, run_channel)
 
-                            @ipc_debug_log client_name "|    Run handle is " handle
+                            @ipc_debug_log "$client_name|    Run handle is " handle
                             write(channel, one(UInt8))
                             write(channel, handle)
                         catch e
@@ -221,13 +229,13 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                 end
             # Message 4: Destroy a running state
             elseif msg_idx == 4
-                @ipc_debug_log client_name "|M: Destroy a running state..."
+                @ipc_debug_log "$client_name|M: Destroy a running state..."
                 state_id = read(channel, IPC_Handle)
-                @ipc_debug_log client_name "|     State=" state_id
+                @ipc_debug_log "$client_name|     State=" state_id
 
                 result = ipc_remove_state(state_id)
                 if exists(result)
-                    @ipc_debug_log client_name "|     Successful"
+                    @ipc_debug_log "$client_name|     Successful"
                     write(channel, one(UInt8))
                     (algo, grid, comms_channel) = result
                     close(comms_channel) # Will trigger an exception upon the algo's next tick,
@@ -238,22 +246,22 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                 end
             # Message 5: Advance the algorithm forward
             elseif msg_idx == 5
-                @ipc_debug_log client_name "|M: Step forward..."
-                state_id = read(channel, UInt32)
-                @ipc_debug_log client_name "|     state=" state_id
+                @ipc_debug_log "$client_name|M: Step forward..."
+                state_id = read(channel, IPC_Handle)
+                @ipc_debug_log "$client_name|     state=" state_id
 
                 # Get the type of tick logic to run.
                 tick_type_code = read(channel, UInt8)
-                (tag_cutoff, tick_cutoff, tick_count)::Tuple{Symbol, Int, Int} = if tick_type_code == 0 # Normal tick
+                (tag_cutoff::Symbol, tick_cutoff::Int, tick_count::Int) = if tick_type_code == 0 # Normal tick
                     cutoff_priority = read(channel, UInt32)
                     tick_count = read(channel, UInt32)
-                    @ipc_debug_log client_name "|    " tick_count " ticks of " cutoff_priority
+                    @ipc_debug_log "$client_name|    $tick_count ticks of priority $cutoff_priority+"
                     (:all, cutoff_priority, tick_count)
                 elseif tick_type_code == 1 # Tagged event
-                    @ipc_debug_log client_name "|    tagged events"
+                    @ipc_debug_log "$client_name|    tagged events"
                     (:all, typemax(Int), typemax(Int))
                 elseif tick_type_code == 2 # Run to completion
-                    @ipc_debug_log client_name "|    completion"
+                    @ipc_debug_log "$client_name|    completion"
                     (:completion, typemax(Int), typemax(Int))
                 else
                     println(stderr, client_name, "|    Invalid tick mode ", tick_type_code)
@@ -265,7 +273,7 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                 if isnothing(state_query_result)
                     println(stderr, client_name, "|    Unknown state ID: ", state_id)
                     write(channel, zero(UInt8))
-                elseif tag_cutof == :error
+                elseif tag_cutoff == :error
                     write(channel, zero(UInt8))
                 else
                     (algo, grid, state_channel) = state_query_result
@@ -281,7 +289,7 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                             if next_tick_data >= tick_cutoff
                                 tick_count -= 1
                                 if tick_count <= 0
-                                    @ipc_debug_log client_name "|    Hit tick limit!"
+                                    @ipc_debug_log "$client_name|    Hit tick limit!"
                                     user_request_finished = true
                                     break
                                 end
@@ -307,6 +315,8 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                                     user_request_finished = true
                                     reported_tag = next_tick_data
                                     break
+                                else
+                                    @ipc_debug_log "$client_name|    Skimming over tagged event '$next_tick_data'"
                                 end
                             end
                         else
@@ -315,6 +325,7 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                     end
 
                     # Report to the user what happened.
+                    @ipc_debug_log "$client_name|    Algo $((algo_finished ? "has finished!" : (exists(reported_tag) ? "hit tagged event '$reported_tag'" : "isn't done yet")))"
                     write(channel, one(UInt8))
                     write(channel, convert(UInt8, algo_finished))
                     if !algo_finished
@@ -328,24 +339,15 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                         end
                     end
                 end
-
-                if was_error == 1
-                    @ipc_debug_log "    failed!"
-                    write(channel, zero(UInt8))
-                else
-                    @ipc_debug_log "    result: " result
-                    write(channel, one(UInt8))
-                    write(channel, convert(UInt8, result))
-                end
             # Message 6: Download the grid
             elseif msg_idx == 6
-                @ipc_debug_log client_name "|M: Download the grid..."
+                @ipc_debug_log "$client_name|M: Download the grid..."
                 state_id = read(channel, UInt32)
-                @ipc_debug_log "    State=" state_id
+                @ipc_debug_log "$client_name|     State=" state_id
 
                 result = ipc_get_state(state_id)
                 if exists(result)
-                    @ipc_debug_log client_name "|     Successful"
+                    @ipc_debug_log "$client_name|     Successful"
                     write(channel, one(UInt8))
                     (algo, grid, comms_channel) = result
 
@@ -360,7 +362,7 @@ function ipc_client_loop(client_name, channel, server, max_grid_byte_size, ::Val
                 end
             # Message 7: Kill sever thread
             elseif msg_idx == 7
-                @ipc_debug_log client_name "|M: Kill server thread..."
+                @ipc_debug_log "$client_name|M: Kill server thread..."
                 if isnothing(server)
                     println(stderr, "Client \"", client_name, "\" asked to kill the server thread but that's not allowed.")
                     write(channel, zero(UInt8))

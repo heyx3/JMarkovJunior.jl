@@ -154,10 +154,10 @@ function MJ.markov_algo_run(
     # Your function returns `(changed_anything, new_inherited_bias_states)`
     Bool, typeof(inherited_bias_states)
 } where {
-    NGridDims, TGrid::MJ.CellGid{NGridDims},
+    NGridDims, TGrid<:MJ.CellGrid{NGridDims},
     TAllocator<:MarkovJunior.AbstractMarkovAllocator
 }
-    VI = Vec{Int32, NGridDims} # typedef for grid index
+    VI = Vec{NGridDims, Int32} # typedef for grid index
 
     # Some Ops want to reallocate the grid with a new size or dimensionality.
     # The proper way to do this is to call our helper function:

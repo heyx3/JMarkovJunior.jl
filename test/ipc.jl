@@ -3,6 +3,8 @@
 
 #TODO: @suppress_err and then somehow log it when catching exceptions
 
+
+
 (() -> begin # Wrap the test in a function to avoid global weirdness
 
 PIPE_PATH = if Sys.iswindows()
@@ -16,7 +18,7 @@ server = markovjunior_run_ipc(
     pipe_path = PIPE_PATH
 )
 sleep(5) #TODO: Some kind of signal to know that the server has started
-println("  (if you see this before the server says it's ready to accept clients, the test will fail due to race condition)")
+println("  !!  If you see this before the server says it's ready to accept clients, the test will fail due to race condition  !!")
 channel = connect(PIPE_PATH)
 
 try # Even if below tests fail, make sure to close the client and kill the server
@@ -45,9 +47,9 @@ function ipc_parse_algo(algo_str::String, expected_algo_id::Integer, expect_succ
         @bp_check(!expect_success,
                   "Failed to parse algorithm: (", err_code, ") ",
                     err_str, "\n", algo_str, "\n")
-        println(stderr, "VVVVVVVVVVVVVVVVVVVVVVV\n",
-                        "Error message from successful test, for reference: ", err_str,
-                        "\n^^^^^^^^^^^^^^^^^^^^^")
+        println(stderr, "\nVVVVVVVVVVVVVVVVVVVVVVV\n",
+                        "Successful test that parsing fails. Here's the error message for reference: ", err_str,
+                        "\n^^^^^^^^^^^^^^^^^^^^^\n")
         return zero(UInt32)
     elseif (err_code == 1)
         algo_id::UInt32 = read(channel, UInt32)
@@ -83,6 +85,7 @@ function ipc_delete_algo(id::Integer, expect_success::Bool)::Nothing
     return nothing
 end
 function ipc_start(algo_id::Integer, grid_size::Tuple{Vararg{Integer}}, seeds,
+                   min_tick_priority::Int, hint_is_animation::Bool,
                    expect_size_allowed::Bool,
                    initial_state::Optional{Array},
                    expected_state_id::Integer, expect_success::Bool
@@ -114,6 +117,9 @@ function ipc_start(algo_id::Integer, grid_size::Tuple{Vararg{Integer}}, seeds,
 
         write(channel, convert(UInt32, length(seed_bytes)))
         write(channel, seed_bytes)
+
+        write(channel, convert(UInt32, min_tick_priority))
+        write(channel, convert(UInt8, hint_is_animation))
 
         err_code = read(channel, UInt8)
         if err_code == 1
@@ -160,9 +166,9 @@ function ipc_advance(state_id::Integer,
         write(channel, UInt8(0))
         write(channel, convert(UInt32, mode[1]))
         write(channel, convert(UInt32, mode[2]))
-    elseif tag_mode isa Val{:tags}
+    elseif mode isa Val{:tags}
         write(channel, UInt8(1))
-    elseif tag_mode isa Val{:completed}
+    elseif mode isa Val{:completed}
         write(channel, UInt8(2))
     else
         error("Unhandled test case: ", mode)
@@ -178,13 +184,13 @@ function ipc_advance(state_id::Integer,
     @bp_check(expect_success, "ipc_advance() should have failed but it didn't! State ID ", state_id)
 
     algo_finished = read(channel, UInt8)
-    if algo_finished == 0
-        @bp_check(!expect_finished, "The algorithm should have finished here!")
+    if algo_finished == 1
+        @bp_check(expect_finished, "The algorithm shouldn't have finished here but it did!")
         return nothing
-    elseif algo_finished != 1
+    elseif algo_finished != 0
         error("Unexpected 'is algo finished' code: ", algo_finished)
     end
-    @bp_check(expect_finished, "The algorithm shouldn't have finished here but it did!")
+    @bp_check(!expect_finished, "The algorithm should have finished here!")
 
     had_tagged_event = read(channel, UInt8)
     if had_tagged_event == 0
@@ -196,6 +202,11 @@ function ipc_advance(state_id::Integer,
 
     tagged_event_bytes = Vector{UInt8}(undef, read(channel, UInt32))
     read!(channel, tagged_event_bytes)
+    # Convert it to Symbol.
+    # Symbols shouldn't have the null terminator in them.
+    @bp_check(!isempty(tagged_event_bytes) && tagged_event_bytes[end]==0,
+              "Tagged event should at least have a null terminator!")
+    deleteat!(tagged_event_bytes, length(tagged_event_bytes))
     tagged_event = Symbol(tagged_event_bytes)
     @bp_check(exists(expect_tag), "The algorithm should not have hit a tagged event, but it hit '", tagged_event, "'")
     @bp_check(expect_tag == tagged_event, "Expected tagged event '", expect_tag, "' but got '", tagged_event, "'")
@@ -267,13 +278,14 @@ sleep(1)
 
 # Try starting the algorithm.
 # Also try some false starts.
-ipc_start(1, (6, 6), (1, 4.5),   true, nothing,   0, false) # Failed due to algo ID
-ipc_start(2, (4, ), (1, 4.5),  true, nothing,  0, false) # Failed due to algo being 2D and grid being 1D
+ipc_start(1, (6, 6), (1, 4.5),   2, false,   true, nothing,   0, false) # Failed due to algo ID
+ipc_start(2, (4, ), (1, 4.5),  2, false,   true, nothing,  0, false) # Failed due to algo being 2D and grid being 1D
 ipc_start(2, ntuple(i -> Int(ceil(sqrt(MJ.IPC_DEFAULT_MAX_GRID_BYTE_SIZE)) + 1), 2),
           (1, 4.5),
+          2, false,
           false, nothing,
           0, false) # Failed due to memory cap
-ipc_start(2, (3, 12), (1, 4.5),   true, nothing,    1, true)
+ipc_start(2, (3, 12), (1, 4.5),   2, false,    true, nothing,    1, true)
 # Get the grid for the first time, and verify it.
 let g = ipc_grid(1, true)
     @bp_check(size(g) == (3, 12), "Grid is ", size(g))
@@ -282,14 +294,14 @@ end
 ipc_grid(2, false)
 
 # Run some iterations and check that there are now changed pixels.
-ipc_advance(1, (3, 1), true, false, nothing)
+ipc_advance(1, (2, 1), true, false, nothing)
 let grid = ipc_grid(1, true)
     @bp_check(size(grid) == (3, 12), "Grid is ", size(grid))
     @bp_check(count(i->i==2, grid) == 1, "Grid: ", grid)
     @bp_check(count(iszero, grid) == 35, "Grid: ", grid)
 end
-ipc_advance(2, (3, 3), false, false, nothing) # Failed due to state ID
-ipc_advance(1, (3, 3), true, false, nothing)
+ipc_advance(2, (2, 3), false, false, nothing) # Failed due to state ID
+ipc_advance(1, (2, 3), true, false, nothing)
 let grid = ipc_grid(1, true)
     @bp_check(size(grid) == (3, 12), "Grid is ", size(grid))
     @bp_check(count(i->i==2, grid) == 4, "Grid: ", grid)
@@ -309,7 +321,7 @@ ipc_destroy(1, false)
 ipc_grid(1, false)
 
 # Verify the "finish" message and ability to write an initial state.
-ipc_start(2, (4, 2), (1, 4.5),  true, [ 0, 1, 1, 0, 1, 0, 1, 0 ],    2, true)
+ipc_start(2, (4, 2), (1, 4.5),  2, false,  true, [ 0, 1, 1, 0, 1, 0, 1, 0 ],    2, true)
 let grid = ipc_grid(2, true)
     @bp_check(size(grid) == (4, 2), "Grid is ", size(grid))
     @bp_check(grid == UInt8[

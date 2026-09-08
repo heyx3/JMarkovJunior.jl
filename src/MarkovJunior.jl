@@ -14,7 +14,7 @@ Start the task with `commsChannel::AlgoCommsChannel = markov_algo_run(algo, init
 The `MarkovTickSettings` struct allows you to control how the algorithm runs, and can even be changed during the run.
 For example you can signal the algorithm to cancel itself with `ticking.cancel_algo = true`,
   or fast-forward to the end by setting `ticking.skip_most_tagged_events = true` and
-  `ticking.min_runtime_tick_priority = 99999999`.
+  `ticking.min_tick_priority = 99999999`.
 
 The returned `Channel` is used to communicate with the coroutine;
   it's recommended to use `markov_algo_complete()` or `markov_algo_next()` to do that for you,
@@ -64,7 +64,7 @@ include("compatibility.jl")
 
 @make_toggleable_asserts markovjunior_
 @decentralized_module_init
-const BUILT_WITH_TOOL = convert(Bool, get(ENV, "JMJ_BUILD_WITH_TOOL", 1))
+const BUILT_WITH_TOOL = something(tryparse(Bool, get(ENV, "JMJ_BUILD_WITH_TOOL", "0")), true)
 
 
 # Core library:
@@ -78,11 +78,11 @@ include("algo_interfaces.jl")
 include("op_rewrite.jl")
 include("op_draw_box.jl")
 include("op_sequence.jl")
-include("bias_temperatue.jl")
+include("bias_temperature.jl")
 include("bias_field.jl")
 export @markovjunior, markov_algo_parse,
        MarkovAlgorithm, MarkovTickSettings,
-       markov_algo_run, markov_algo_next, markov_algo_complete,
+       markov_algo_run, markov_algo_next, markov_algo_complete, markov_algo_cleanup,
        markov_algo_to_string
 
 # Tooling:
