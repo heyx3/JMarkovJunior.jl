@@ -11,7 +11,7 @@ markov_bias_calculate(t::MarkovBiasTemperature, ::Nothing,
                       ::Union{CellLine{N}, CellRegion{N}}
                      ) where {N} = rand(algo_state.rng, Float32) * t.amount
 
-dsl_string(b::MarkovBiasTemperature) = "temperature($(b.amount))"
+dsl_format(b::MarkovBiasTemperature) = "temperature($(b.amount))"
 
 function parse_markovjunior_bias(::Val{:temperature}, inputs::MacroParserInputs,
                                  loc::LineNumberNode, args

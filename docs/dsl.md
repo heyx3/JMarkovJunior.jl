@@ -10,7 +10,7 @@ This represents a sequence of operations that generate a grid of colored pixels,
 You could also think of it as defining an *animation*,
   which transforms a blank grid into an image/scene.
 
-You can turn a parsed algorithm back into a DSL string with `dsl_string(algo)`.
+You can turn a parsed algorithm back into a DSL string with `dsl_format(algo)`.
 However the result looks much worse than the original -- whitespace, comments and other niceties are lost!
 
 ## Notes about Julia

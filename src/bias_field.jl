@@ -556,22 +556,22 @@ function parse_markovjunior_bias(::Val{:field}, inputs::MacroParserInputs,
     return convert(MarkovBiasField, field)
 end
 
-dsl_string(f::MarkovBiasField) = string("field(",
+dsl_format(f::MarkovBiasField) = string("field(",
     # Source cells:
     (f.flipped && isempty(f.paths)) ? "-" : "",
-    dsl_string(f.sources),
+    dsl_format(f.sources),
 
     # Path cells:
     isempty(f.paths) ? "" : (
         f.flipped ? "<-" : "->"
     ),
-    dsl_string(f.paths),
+    dsl_format(f.paths),
 
     # Anchors:
     isempty(f.anchors) ? "" : (
         " & "
     ),
-    dsl_string(f.anchors),
+    dsl_format(f.anchors),
 
     # Now the other arguments.
 

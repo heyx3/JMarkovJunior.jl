@@ -161,7 +161,7 @@ function MJ.markov_algo_run(
 
     # Some Ops want to reallocate the grid with a new size or dimensionality.
     # The proper way to do this is to call our helper function:
-    grid = MJ.markov_algo_new_grid(algo_state, size(grid) .÷ 2) do new_grid, old_grid
+    grid = MJ.markov_algo_new_grid(algo_state, size(grid) .÷ 2) do old_grid, new_grid
         # (fill in 'new_grid', referencing 'old_grid')
         return nothing
     end
@@ -230,7 +230,7 @@ Lastly, implement parsing and string-ification.
 using MacroTools # Very helpful to parse Julia expressions, using @capture
 
 # Suppose your Op's syntax is `@my_op (a, b) c...`
-MJ.dsl_string(op::MyCustomOp) = let a = op.a,
+MJ.dsl_format(op::MyCustomOp) = let a = op.a,
                                     b = op.b,
                                     cs = join(("($c)" for c in op.c), " ")
     "@my_op ($a, $b) $cs"
@@ -277,7 +277,7 @@ The workflow for new Biases is more complicated than new Ops:
 3. Get the bias value for a potential change to the grid: `markov_bias_calculate`
   The output must be a non-negative number, or `nothing` if the change is strictly forbidden.
 4. "Cleanup" the Bias's allocations: `markov_bias_cleanup`
-5. Convert the Bias to and from a DSL string: `dsl_string`, `parse_markovjunior_bias`
+5. Convert the Bias to and from a DSL string: `dsl_format`, `parse_markovjunior_bias`
   The DSL syntax for a bias is a function call (`my_bias(a, b/c)`),
   compared to a macro for Ops (`@my_op a b/c`).
 1. Add constraints to where and how the bias is used (e.g. only one may exist at a time):
@@ -294,7 +294,7 @@ The DSL syntax is `PRIORITIZE(name, args...)`, for example `PRIORITIZE(earliest)
 **NOTE: the interface for priorities will change in the future, so be careful when upgrading MarkovJunior.jl**
 
 1. Define a struct inheriting from `AbstractMarkovRewriteProperty`.
-2. Define its conversion to/from string: `dsl_string` and `parse_markovjunior_rewrite_priority`
+2. Define its conversion to/from string: `dsl_format` and `parse_markovjunior_rewrite_priority`
    * For more info on how to parse things, see the parsing section for custom Ops above.
 3. Add the priority's logic by implementing `pick_rule_using_rewrite_priority`.
 

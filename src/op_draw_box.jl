@@ -178,12 +178,12 @@ end
 #############
 #  DSL
 
-dsl_string_box_rule(r::Nothing) = ""
-dsl_string_box_rule(r::Tuple{Val{:whitelist}, CellTypeSet}) = "+$(dsl_string(r[2]))"
-dsl_string_box_rule(r::Tuple{Val{:blacklist}, CellTypeSet}) = "-$(dsl_string(r[2]))"
+dsl_format_box_rule(r::Nothing) = ""
+dsl_format_box_rule(r::Tuple{Val{:whitelist}, CellTypeSet}) = "+$(dsl_format(r[2]))"
+dsl_format_box_rule(r::Tuple{Val{:blacklist}, CellTypeSet}) = "-$(dsl_format(r[2]))"
 
-dsl_string(b::MarkovOpDrawBox) = string(
-    "@fill '", dsl_string(b.value), "'",
+dsl_format(b::MarkovOpDrawBox) = string(
+    "@fill '", dsl_format(b.value), "'",
     " ", b.space, "(",
     "min=",
         if b.box_is_1D_scalar
@@ -198,8 +198,8 @@ dsl_string(b::MarkovOpDrawBox) = string(
             size(b.box).data
         end,
     ")",
-    " ", dsl_string_box_rule(b.rule),
-    " ", dsl_string_rewrite_mask(b.mask)
+    " ", dsl_format_box_rule(b.rule),
+    " ", dsl_format_rewrite_mask(b.mask)
 )
 
 function parse_markovjunior_op(::Val{Symbol("@fill")},

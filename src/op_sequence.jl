@@ -80,26 +80,26 @@ function markov_algo_run(sequence::MarkovOpSequence{NSelfBiases},
     return (made_any_changes, all_bias_states[1:NInheritedBiases])
 end
 
-dsl_string(s::MarkovOpSequence) = string(
+dsl_format(s::MarkovOpSequence) = string(
     "@sequence ",
     if isnothing(s.threshold)
         ""
     elseif s.threshold isa SequenceRepeatModeTag
         "repeat"
     elseif s.threshold isa Threshold
-        dsl_string(s.threshold)
+        dsl_format(s.threshold)
     else
         error("Unhandled: ", typeof(s.threshold))
     end,
      " ",
     "begin\n    ",
     iter_join(
-        Iterators.map(dsl_string, s.ops),
+        Iterators.map(dsl_format, s.ops),
         "\n    "
     )...,
     "\nend begin\n    ",
     iter_join(
-        Iterators.map(dsl_string, s.biases),
+        Iterators.map(dsl_format, s.biases),
         "\n    "
     )...,
     "\nend"

@@ -43,7 +43,7 @@ end
                                            T::DataType)
     set = markov_allocator_acquire_set(allocator, T)
     try
-        return to_do(array)
+        return to_do(set)
     finally
         markov_allocator_release_set(allocator, set)
     end
@@ -54,7 +54,7 @@ end
                                                    T::DataType)
     set = markov_allocator_acquire_ordered_set(allocator, T)
     try
-        return to_do(array)
+        return to_do(set)
     finally
         markov_allocator_release_ordered_set(allocator, set)
     end
@@ -135,6 +135,7 @@ function markov_allocator_release_array(alloc::MarkovAllocatorHeapReused,
                                         array::Array{TElement, N}) where {TElement, N}
     # For vectors, resize them to max out their underlying memory before storing them.
     # This unfortunately requires some internal details of Array.
+    global WARN_REUSED_HEAP_ARRAY_IMPL_CHANGED
     if (N == 1)
         if hasfield(typeof(array), :ref) && hasfield(typeof(array.ref), :mem)
             capacity = length(array.ref.mem)

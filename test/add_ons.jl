@@ -39,7 +39,7 @@ MJ.markov_bias_calculate(::CustomBias, is_flipped::Bool,
                          algo::MJ.MarkovAlgorithm, algo_state::MJ.AlgoState,
                          area::MJ.CellRegion{N}
                         ) where {N} = impl_custom_bias(min_inclusive(area.b), vsize(algo_state.grid), is_flipped)
-MJ.dsl_string(::CustomBias) = "custom()"
+MJ.dsl_format(::CustomBias) = "custom()"
 MJ.parse_markovjunior_bias(::Val{:custom}, inputs::MJ.MacroParserInputs,
                            loc::LineNumberNode, args
                           ) = CustomBias()
@@ -50,7 +50,7 @@ MJ.parse_markovjunior_bias(::Val{:custom}, inputs::MJ.MacroParserInputs,
     test_mj = MJ.@markovjunior 'b' begin
         @rewrite b => w custom()
     end
-    test_parsed_mj = markov_algo_parse(MJ.dsl_string(test_mj))
+    test_parsed_mj = markov_algo_parse(MJ.dsl_format(test_mj))
     @bp_check(test_mj == test_parsed_mj,
               "Custom Bias parsing failed!\n\nSource:\n", test_mj,
               "\nDest:\n", test_parsed_mj)
@@ -220,7 +220,7 @@ function MJ.markov_algo_run(co::CustomOp, algo::MJ.MarkovAlgorithm, algo_state::
     MJ.markov_algo_tick(algo_state, MJ.STANDARD_END_OF_OP_TICK_PRIORITY)
     return (!isempty(grid), inherited_bias_states)
 end
-MJ.dsl_string(co::CustomOp) = "@cust $(MJ.dsl_string(co.a)) $(MJ.dsl_string(co.b))"
+MJ.dsl_format(co::CustomOp) = "@cust $(MJ.dsl_format(co.a)) $(MJ.dsl_format(co.b))"
 function MJ.parse_markovjunior_op(::Val{Symbol("@cust")},
                                   inputs::MJ.MacroParserInputs,
                                   loc, expr_args, full_line)
@@ -314,7 +314,7 @@ function MJ.markov_algo_run(op::CustomOp2{N}, algo::MJ.MarkovAlgorithm, algo_sta
 
     return (true, inherited_bias_states)
 end
-MJ.dsl_string(co2::CustomOp2) = "@cust2 $(iter_join(co2.location, " ")...)"
+MJ.dsl_format(co2::CustomOp2) = "@cust2 $(iter_join(co2.location, " ")...)"
 function MJ.parse_markovjunior_op(::Val{Symbol("@cust2")},
                                   inputs::MJ.MacroParserInputs,
                                   loc, expr_args, full_line)

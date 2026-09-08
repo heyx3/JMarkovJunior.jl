@@ -62,7 +62,7 @@ abstract type AbstractMarkovBias end
 # Equality between ops and between biases is important for testing.
 # We set a standard implementation of checking their precise types
 #   and comparing their individual fields with == (by default Julia would use === on the fields).
-Base.:(==)(a::T, b::T) where {T<:Union{AbstractMarkovOp, AbstractMarkovBias}} =
+Base.:(==)(a::AbstractMarkovOp, b::AbstractMarkovOp) =
     (typeof(a) == typeof(b)) && all(
         f -> getfield(a, f) == getfield(b, f),
         fieldnames(typeof(a))
@@ -223,21 +223,26 @@ end
 "Reallocates the algorithm grid and issues a tagged event for it"
 function markov_algo_new_grid(new_state_setup_fn,
                               state::AlgoState,
-                              new_size::NTuple{NGrid, Int}
+                              new_size::Union{NTuple{NGrid, Integer}, Vec{NGrid, <:Integer}}
                              )::CellGrid{NGrid} where {NGrid}
     # Dispatch on the grid and allocator type:
     return ((old_grid, alloc) -> begin
-        new_grid::CellGrid{NGrid} = markov_allocator_acquire_array(alloc, new_size, UInt8)
-        # Don't use a try/catch for the allocations, because
-        #    on failure we would like the existing grid to remain available to the user.
+        # Note that on failure, we'd like the current allocated state to always be avalable.
 
-        new_state_setup_fn(state.grid, new_grid)
+        new_grid::CellGrid{NGrid} = markov_allocator_acquire_array(alloc, (new_size...), UInt8)
+        try
+            new_state_setup_fn(old_grid, new_grid)
+            state.grid = new_grid
+        catch e
+            markov_allocator_release_array(alloc, new_grid)
+        end
 
-        state.grid = new_grid
-        markov_algo_tick(state, TAG_NEW_GRID)
-
-        markov_allocator_release_array(alloc, old_grid)
-        return new_grid
+        try
+            markov_algo_tick(state, TAG_NEW_GRID)
+            return new_grid
+        finally
+            markov_allocator_release_array(alloc, old_grid)
+        end
     end)(state.grid, state.allocator)
 end
 
@@ -407,4 +412,4 @@ function markov_algo_complete(process_final_state,
     return nothing
 end
 
-markov_algo_to_string(a::MarkovAlgorithm) = dsl_string(a)
+markov_algo_to_string(a::MarkovAlgorithm) = dsl_format(a)

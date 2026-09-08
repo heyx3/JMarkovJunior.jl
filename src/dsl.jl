@@ -1,14 +1,14 @@
 ##################
-#  dsl_string()
+#  dsl_format()
 
-dsl_string(c::Char) = c
-dsl_string(u::UInt8) = (u == CELL_CODE_INVALID) ? CELL_CHAR_INVALID : CELL_TYPES[u+1].char
-dsl_string(s::CellTypeSet) = string(dsl_string.(s)...)
+dsl_format(c::Char) = c
+dsl_format(u::UInt8) = (u == CELL_CODE_INVALID) ? CELL_CHAR_INVALID : CELL_TYPES[u+1].char
+dsl_format(s::CellTypeSet) = string(dsl_format.(s)...)
 
-dsl_string(i::Int) = i
+dsl_format(i::Int) = i
 
-dsl_string(ma::MarkovAlgorithm) = string(
-    "@markovjunior '", dsl_string(ma.initial_fill), "' ",
+dsl_format(ma::MarkovAlgorithm) = string(
+    "@markovjunior '", dsl_format(ma.initial_fill), "' ",
     exists(ma.fixed_dimension) ? "$(ma.fixed_dimension) " : "",
     "begin
     ",
@@ -19,7 +19,7 @@ dsl_string(ma::MarkovAlgorithm) = string(
     )...,
     "
     ",
-    iter_join(dsl_string.(ma.sequence), "\n    ")...,
+    iter_join(dsl_format.(ma.sequence), "\n    ")...,
     "
     end"
 )
@@ -49,7 +49,9 @@ function parse_markovjunior_op(name_symbol_val,
                                expr_args,
                                original_expr
                               )::AbstractMarkovOp
-    error("Unimplemented: ", typeof.((name_symbol_val, macro_parser_inputs, code_location, expr_args, original_expr)))
+    raise_parse_error(code_location, macro_parser_inputs,
+        "Op is unknown or failed to write its parser correctly!"
+    )
 end
 
 "
@@ -61,7 +63,9 @@ function parse_markovjunior_bias(name_symbol_val,
                                  code_location,
                                  expr_args
                                 )::AbstractMarkovBias
-    error("Unimplemented: ", typeof.((name_symbol_val, macro_parser_inputs, code_location, expr_args)))
+    raise_parse_error(code_location, macro_parser_inputs,
+        "Bias is unknown or failed to write its parser correctly!"
+    )
 end
 
 "
@@ -69,8 +73,8 @@ Called once for every group of biases, for every type of bias in that group.
 The intent is to allow new biases to add constraints on how they are used
   (e.g. throw error if more than one of themselves).
 
-This new group is implicitly stored as an in-order accumulation of every sub-group within `inputs.bias_stack`,
-  each being an inherited set of biases (e.g. nested sequences that each have a bias section).
+This new group is implicitly stored as `flatten(reverse(inputs.bias_stack))`,
+  with each layer of `bias_stack` being an inherited set of biases (from nested sequences that each have a bias section).
 Note that you must not modify the bias groups; only validate their contents!
 "
 markov_bias_validate(type::Type, inputs::MacroParserInputs) = nothing
@@ -222,13 +226,13 @@ function parse_markovjunior_sequence(try_handle_line, inputs::MacroParserInputs,
         if try_handle_line(location, line)
             # Do nothing; the line was handled.
         elseif (line isa Expr) && (line.head == :macrocall)
-            push!(inputs.op_stack_trace, "Item $(i[]) `$(line.args[1])`")
-            push!(output, parse_markovjunior_op(
-                Val(line.args[1]::Symbol), inputs,
-                line.args[2]::LineNumberNode,
-                line.args[3:end], line
-            ))
-            pop!(inputs.op_stack_trace)
+            with_parser_stacktrace(inputs, "Item $(i[]) `$(line.args[1])`") do
+                push!(output, parse_markovjunior_op(
+                    Val(line.args[1]::Symbol), inputs,
+                    line.args[2]::LineNumberNode,
+                    line.args[3:end], line
+                ))
+            end
         else
             raise_parse_error(location, inputs,
                            "Unexpected sequence expression: '", line, "'")
@@ -242,7 +246,7 @@ end
 
 "
 Processes a bias statement/block-of-statements,
-  pushing them onto the end of `inputs.bias_stack` and validating the result
+  pushing them onto the top of `inputs.bias_stack` and validating the result
   before returning it.
 
 Make sure to pop this off the stack once you're done parsing your op!
@@ -253,16 +257,13 @@ function push_parsed_markovjunior_bias_statement(inputs::MacroParserInputs, loca
     # Define how to process each statement.
     output = Vector{AbstractMarkovBias}()
     function process_line(location, line)
-        push!(inputs.op_stack_trace, "Bias \"$line\"")
-        try
+        with_parser_stacktrace(inputs, "Bias \"$line\"") do
             if @capture line f_Symbol(args__)
                 push!(output, parse_markovjunior_bias(Val(f), inputs, location, args))
             else
                 raise_parse_error(location, inputs,
                                "Invalid bias syntax! Expected a function call, got:", line)
             end
-        finally
-            pop!(inputs.op_stack_trace)
         end
     end
 

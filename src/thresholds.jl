@@ -38,9 +38,9 @@ function get_raw_threshold(th::ThresholdRange, in::ThresholdInputs)
 end
 
 
-dsl_string(th::ThresholdByArea) = "(area*$(th.scale))"
-dsl_string(th::ThresholdByLength) = "(length*$(th.scale))"
-dsl_string(th::ThresholdRange) = "(($(dsl_string(th.a))):($(dsl_string(th.b))))"
+dsl_format(th::ThresholdByArea) = "(area*$(th.scale))"
+dsl_format(th::ThresholdByLength) = "(length*$(th.scale))"
+dsl_format(th::ThresholdRange) = "(($(dsl_format(th.a))):($(dsl_format(th.b))))"
 
 "
 Checks whether an expression looks to be a Threshold value.
@@ -60,8 +60,7 @@ parse_markovjunior_threshold(inputs::MacroParserInputs, location, threshold_expr
 )
 function parse_markovjunior_threshold(try_handle,
                                       inputs::MacroParserInputs, location, threshold_expr)
-    push!(inputs.op_stack_trace, "Threshold statement")
-    try # Ensure stack trace is popped at end
+    with_parser_stacktrace(inputs, "Threshold statement") do
         user_attempt = try_handle(threshold_expr)
         if exists(user_attempt)
             user_attempt
@@ -76,30 +75,23 @@ function parse_markovjunior_threshold(try_handle,
         elseif @capture(threshold_expr, (length*x_Real)) || @capture(threshold_expr, (x_Real*length))
             return ThresholdByLength(convert(Float32, x))
         elseif @capture threshold_expr (a_:b_)
-            aa = begin
-                push!(inputs.op_stack_trace, "Range start `$a`")
+            aa = with_parser_stacktrace(inputs, "Range start `$a`") do
                 result = parse_markovjunior_threshold(inputs, location, a)
                 if !isa(result, ThresholdScalar)
                     raise_parse_error(location, inputs, "Value not a scalar")
                 end
-                pop!(inputs.op_stack_trace)
                 result
             end
-            bb = begin
-                push!(inputs.op_stack_trace, "Range end `$b`")
+            bb = with_parser_stacktrace(inputs, "Range end `$b`") do
                 result = parse_markovjunior_threshold(inputs, location, b)
                 if !isa(result, ThresholdScalar)
                     raise_parse_error(location, inputs, "Value not a scalar")
                 end
-                pop!(inputs.op_stack_trace)
                 result
             end
             return ThresholdRange(aa, bb)
         else
-            raise_parse_error(location, inputs, "Unexpected format for threshold; expected")
+            raise_parse_error(location, inputs, "Unsupported format for threshold")
         end
-    # Handle stack trace no matter what.
-    finally
-        pop!(inputs.op_stack_trace)
     end
 end

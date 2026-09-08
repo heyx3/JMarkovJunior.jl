@@ -969,7 +969,7 @@ Must implement the following interface:
 * `pick_rule_using_rewrite_priority(...)` to return the rule index.
 * `parse_markovjunior_rewrite_priority(::Val{:x}, ...)`
   to parse itself from the statement `PRIORITIZE(x, args...)`
-* `dsl_string(self)` to turn the struct back into a DSL statement.
+* `dsl_format(self)` to turn the struct back into a DSL statement.
 "
 abstract type AbstractMarkovRewritePriority end
 Base.:(==)(a::AbstractMarkovRewritePriority, b::AbstractMarkovRewritePriority) = (
@@ -1005,7 +1005,7 @@ pick_rule_using_rewrite_priority(priority::AbstractMarkovRewritePriority,
 parse_markovjunior_rewrite_priority(::Val{Name}, expr_args, inputs::MacroParserInputs) where {Name} =
     error("Unimplemented: ", Name)
 
-dsl_string(p::AbstractMarkovRewritePriority) = error("Unimplemented: ", typeof(p))
+dsl_format(p::AbstractMarkovRewritePriority) = error("Unimplemented: ", typeof(p))
 
 
 ##################
@@ -1025,11 +1025,10 @@ function markov_algo_run(rewrite::MarkovOpRewrite{TRules, TBias, TPriority},
                          algo::MarkovAlgorithm, algo_state::AlgoState,
                          inherited_biases::NTuple{NInheritedBiases, AbstractMarkovBias},
                          inherited_bias_states::NTuple{NInheritedBiases, Any},
-                         grid::TGrid = algo_state.grid
+                         grid::CellGrid{NGridDims} = algo_state.grid
                         )::Tuple{Bool, typeof(inherited_bias_states)} where {
                             TRules, TBias, TPriority,
-                            NGridDims, TGrid<:CellGrid{NGridDims},
-                            NInheritedBiases
+                            NGridDims, NInheritedBiases
                         }
     NRules = length(rewrite.rules)
 
@@ -1337,22 +1336,22 @@ end
 #####################
 #  DSL integration
 
-dsl_string_rewrite_source(rule::UInt8) = dsl_string(rule)
-dsl_string_rewrite_source(rule::RewriteRuleCell_Set) = "[$(dsl_string(rule))]"
-dsl_string_rewrite_source(rule::RewriteRuleCell_Wildcard) = "_"
+dsl_format_rewrite_source(rule::UInt8) = dsl_format(rule)
+dsl_format_rewrite_source(rule::RewriteRuleCell_Set) = "[$(dsl_format(rule))]"
+dsl_format_rewrite_source(rule::RewriteRuleCell_Wildcard) = "_"
 
-dsl_string_rewrite_dest(rule::UInt8) = dsl_string(rule)
-dsl_string_rewrite_dest(rule::RewriteRuleCell_Set) = "{$(dsl_string(rule))}"
-dsl_string_rewrite_dest(rule::RewriteRuleCell_List) = "[$(string(dsl_string.(rule)...))]"
-dsl_string_rewrite_dest(rule::RewriteRuleCell_Wildcard) = "_"
-dsl_string_rewrite_dest(rule::RewriteRuleCell_Lookup{Int}) = "[$(rule.source_idx)]"
-dsl_string_rewrite_dest(rule::RewriteRuleCell_Lookup{<:NTuple}) = "[$(iter_join(rule.source_idx, ", ")...)]"
+dsl_format_rewrite_dest(rule::UInt8) = dsl_format(rule)
+dsl_format_rewrite_dest(rule::RewriteRuleCell_Set) = "{$(dsl_format(rule))}"
+dsl_format_rewrite_dest(rule::RewriteRuleCell_List) = "[$(string(dsl_format.(rule)...))]"
+dsl_format_rewrite_dest(rule::RewriteRuleCell_Wildcard) = "_"
+dsl_format_rewrite_dest(rule::RewriteRuleCell_Lookup{Int}) = "[$(rule.source_idx)]"
+dsl_format_rewrite_dest(rule::RewriteRuleCell_Lookup{<:NTuple}) = "[$(iter_join(rule.source_idx, ", ")...)]"
 
-dsl_string_rewrite_mask(mask::Nothing) = ""
-dsl_string_rewrite_mask(mask::Float32) = "%$mask"
-dsl_string_rewrite_mask(mask::NTuple{2, Float32}) = "%($(mask[1]):$(mask[2]))"
+dsl_format_rewrite_mask(mask::Nothing) = ""
+dsl_format_rewrite_mask(mask::Float32) = "%$mask"
+dsl_format_rewrite_mask(mask::NTuple{2, Float32}) = "%($(mask[1]):$(mask[2]))"
 
-function dsl_string_rewrite_md_array(array::Array{RewriteCell_MD{NDims}, NDims},
+function dsl_format_rewrite_md_array(array::Array{RewriteCell_MD{NDims}, NDims},
                                      take_source::Bool) where {NDims}
     output = preallocated_vector(Char, 1024)
     append!(output, "[\n  ")
@@ -1393,9 +1392,9 @@ function dsl_string_rewrite_md_array(array::Array{RewriteCell_MD{NDims}, NDims},
         # Write the current element.
         append!(output,
             if take_source
-                dsl_string_rewrite_source(array[idx...][1])
+                dsl_format_rewrite_source(array[idx...][1])
             else
-                dsl_string_rewrite_dest(array[idx...][2])
+                dsl_format_rewrite_dest(array[idx...][2])
             end
         )
 
@@ -1406,12 +1405,12 @@ function dsl_string_rewrite_md_array(array::Array{RewriteCell_MD{NDims}, NDims},
     return String(output)
 end
 
-dsl_string_rewrite_axis(a::Integer) = if a < 5
+dsl_format_rewrite_axis(a::Integer) = if a < 5
     ('x', 'y', 'z', 'w')[a]
 else
     a
 end
-function dsl_string_rewrite_signed_axis(a::Integer)
+function dsl_format_rewrite_signed_axis(a::Integer)
     letter = if abs(a) in 1:4
         ('x', 'y', 'z', 'w')[abs(a)]
     else
@@ -1440,11 +1439,11 @@ function dsl_string_rewrite_signed_axis(a::Integer)
         end
     )
 end
-dsl_string(@nospecialize strip::RewriteRule_Strip) = string(
-    dsl_string_rewrite_source.(t[1] for t in strip.cells)...,
+dsl_format(@nospecialize strip::RewriteRule_Strip) = string(
+    dsl_format_rewrite_source.(t[1] for t in strip.cells)...,
     " => ",
-    dsl_string_rewrite_dest.(t[2] for t in strip.cells)...,
-    " $(dsl_string_rewrite_mask(strip.mask))",
+    dsl_format_rewrite_dest.(t[2] for t in strip.cells)...,
+    " $(dsl_format_rewrite_mask(strip.mask))",
     (isone(strip.weight) ? () : (" *", strip.weight))...,
     if isempty(strip.explicit_symmetries) && isnothing(strip.tail_symmetry)
         ()
@@ -1453,7 +1452,7 @@ dsl_string(@nospecialize strip::RewriteRule_Strip) = string(
             " \\[ ",
             # Explicit symmetries:
             iter_join_flatten(
-                (dsl_string_rewrite_signed_axis(dir.axis * dir.sign)
+                (dsl_format_rewrite_signed_axis(dir.axis * dir.sign)
                   for dir in strip.explicit_symmetries),
                 ", "
             )...,
@@ -1490,11 +1489,11 @@ dsl_string(@nospecialize strip::RewriteRule_Strip) = string(
         )
     end...
 )
-dsl_string(@nospecialize md::RewriteRule_MD) = string(
-    dsl_string_rewrite_md_array(md.cells, true),
+dsl_format(@nospecialize md::RewriteRule_MD) = string(
+    dsl_format_rewrite_md_array(md.cells, true),
     " => ",
-    dsl_string_rewrite_md_array(md.cells, false),
-    " $(dsl_string_rewrite_mask(md.mask))",
+    dsl_format_rewrite_md_array(md.cells, false),
+    " $(dsl_format_rewrite_mask(md.mask))",
     (isone(md.weight) ? () : (" *", md.weight))...,
     if isempty(md.symmetry.grid_axis_choices) && isempty(md.symmetry.chiral_groups)
         ()
@@ -1508,7 +1507,7 @@ dsl_string(@nospecialize md::RewriteRule_MD) = string(
                     return tuple(
                         '{',
                         iter_join(
-                            Iterators.map(dsl_string_rewrite_axis, cg),
+                            Iterators.map(dsl_format_rewrite_axis, cg),
                             ", "
                         )...,
                         '}'
@@ -1536,14 +1535,14 @@ dsl_string(@nospecialize md::RewriteRule_MD) = string(
                             tuple(
                                 '(',
                                 iter_join(
-                                    Iterators.map(dsl_string_rewrite_axis, rule_axes),
+                                    Iterators.map(dsl_format_rewrite_axis, rule_axes),
                                     ", "
                                 )...,
                                 ')'
                             )
                         else
                             tuple(
-                                dsl_string_rewrite_axis(rule_axes[1])
+                                dsl_format_rewrite_axis(rule_axes[1])
                             )
                         end...,
                         "[ ",
@@ -1557,7 +1556,7 @@ dsl_string(@nospecialize md::RewriteRule_MD) = string(
                                         '(',
                                         iter_join(
                                             Iterators.map(permutation) do grid_dir_int
-                                                return dsl_string_rewrite_signed_axis(grid_dir_int)
+                                                return dsl_format_rewrite_signed_axis(grid_dir_int)
                                             end,
                                             ", "
                                         )...,
@@ -1568,7 +1567,7 @@ dsl_string(@nospecialize md::RewriteRule_MD) = string(
                             )
                         else
                             iter_join(
-                                Iterators.map(dsl_string_rewrite_signed_axis, permutations),
+                                Iterators.map(dsl_format_rewrite_signed_axis, permutations),
                                 ", "
                             )
                         end...,
@@ -1616,27 +1615,27 @@ dsl_string(@nospecialize md::RewriteRule_MD) = string(
     end...
 )
 
-dsl_string(@nospecialize op::MarkovOpRewrite) = string(
+dsl_format(@nospecialize op::MarkovOpRewrite) = string(
     "@rewrite ",
-    exists(op.threshold) ? dsl_string(op.threshold) : "",
+    exists(op.threshold) ? dsl_format(op.threshold) : "",
       " ",
     if length(op.rules) == 1
-        dsl_string(op.rules[1])
+        dsl_format(op.rules[1])
     else
         string(
             "begin\n    ",
-            "PRIORITIZE(", dsl_string(op.priority), ")\n    ",
-            iter_join(dsl_string.(op.rules), "\n    ")...,
+            "PRIORITIZE(", dsl_format(op.priority), ")\n    ",
+            iter_join(dsl_format.(op.rules), "\n    ")...,
             "\nend"
         )
     end,
       " ",
     if length(op.biases) == 1
-        dsl_string(op.biases[1])
+        dsl_format(op.biases[1])
     elseif length(op.biases) > 1
         string(
             "begin\n    ",
-            iter_join(dsl_string.(op.biases), "\n    ")...,
+            iter_join(dsl_format.(op.biases), "\n    ")...,
             "\nend"
         )
     else
@@ -2534,7 +2533,7 @@ function parse_markovjunior_rewrite_priority(::Val{:everything}, expr_args, inpu
     end
     return MarkovRewritePriority_Everything()
 end
-dsl_string(::MarkovRewritePriority_Everything) = "everything"
+dsl_format(::MarkovRewritePriority_Everything) = "everything"
 
 struct MarkovRewritePriority_Fair <: AbstractMarkovRewritePriority end
 function pick_rule_using_rewrite_priority(::MarkovRewritePriority_Fair,
@@ -2555,7 +2554,7 @@ function parse_markovjunior_rewrite_priority(::Val{:fair}, expr_args, inputs::Ma
     end
     return MarkovRewritePriority_Fair()
 end
-dsl_string(::MarkovRewritePriority_Fair) = "fair"
+dsl_format(::MarkovRewritePriority_Fair) = "fair"
 
 struct MarkovRewritePriority_Earliest <: AbstractMarkovRewritePriority end
 function pick_rule_using_rewrite_priority(::MarkovRewritePriority_Earliest,
@@ -2577,7 +2576,7 @@ function parse_markovjunior_rewrite_priority(::Val{:earliest}, expr_args, inputs
     end
     return MarkovRewritePriority_Earliest()
 end
-dsl_string(::MarkovRewritePriority_Earliest) = "earliest"
+dsl_format(::MarkovRewritePriority_Earliest) = "earliest"
 
 struct MarkovRewritePriority_Latest <: AbstractMarkovRewritePriority end
 function pick_rule_using_rewrite_priority(::MarkovRewritePriority_Latest,
@@ -2599,7 +2598,7 @@ function parse_markovjunior_rewrite_priority(::Val{:latest}, expr_args, inputs::
     end
     return MarkovRewritePriority_Latest()
 end
-dsl_string(::MarkovRewritePriority_Latest) = "latest"
+dsl_format(::MarkovRewritePriority_Latest) = "latest"
 
 struct MarkovRewritePriority_Common <: AbstractMarkovRewritePriority end
 function pick_rule_using_rewrite_priority(::MarkovRewritePriority_Common,
@@ -2625,7 +2624,7 @@ function parse_markovjunior_rewrite_priority(::Val{:common}, expr_args, inputs::
     end
     return MarkovRewritePriority_Common()
 end
-dsl_string(::MarkovRewritePriority_Common) = "common"
+dsl_format(::MarkovRewritePriority_Common) = "common"
 
 struct MarkovRewritePriority_Rare <: AbstractMarkovRewritePriority end
 function pick_rule_using_rewrite_priority(::MarkovRewritePriority_Rare,
@@ -2651,4 +2650,4 @@ function parse_markovjunior_rewrite_priority(::Val{:rare}, expr_args, inputs::Ma
     end
     return MarkovRewritePriority_Rare()
 end
-dsl_string(::MarkovRewritePriority_Rare) = "rare"
+dsl_format(::MarkovRewritePriority_Rare) = "rare"
